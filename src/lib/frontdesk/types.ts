@@ -10,6 +10,18 @@ export type MessageSender = "guest" | "ai" | "front" | "system";
 
 export type FirestoreDate = Timestamp | null | undefined;
 
+export type WebRtcSessionDescription = {
+  sdp: string;
+  type: "answer" | "offer";
+};
+
+export type WebRtcIceCandidate = {
+  candidate: string;
+  sdpMLineIndex: number | null;
+  sdpMid: string | null;
+  usernameFragment?: string | null;
+};
+
 export type CallRecord = {
   id: string;
   stay_id: string;
@@ -32,6 +44,12 @@ export type CallRecord = {
   accepted_by?: string;
   accepted_at?: FirestoreDate;
   requested_by_staff_uid?: string;
+  offer_sdp?: WebRtcSessionDescription;
+  answer_sdp?: WebRtcSessionDescription;
+  guest_ice_candidates?: WebRtcIceCandidate[];
+  front_ice_candidates?: WebRtcIceCandidate[];
+  webrtc_status?: "waiting_offer" | "answering" | "connected" | "failed";
+  connected_at?: FirestoreDate;
 };
 
 export type ChatThreadRecord = {

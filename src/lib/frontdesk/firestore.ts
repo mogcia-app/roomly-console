@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  arrayUnion,
   collection,
   doc,
   onSnapshot,
@@ -18,6 +19,8 @@ import type {
   ChatThreadRecord,
   InquiryHistoryItem,
   MessageRecord,
+  WebRtcIceCandidate,
+  WebRtcSessionDescription,
 } from "@/lib/frontdesk/types";
 
 export function subscribeQueueCalls(
@@ -309,6 +312,38 @@ export async function endCall(callId: string) {
 
 export async function markCallUnavailable(callId: string) {
   await patchCall(callId, "mark-unavailable");
+}
+
+export async function saveCallAnswer(callId: string, answer: WebRtcSessionDescription) {
+  const db = getFirestoreDb();
+  const callRef = doc(db, "calls", callId);
+
+  await updateDoc(callRef, {
+    answer_sdp: answer,
+    webrtc_status: "answering",
+    updated_at: serverTimestamp(),
+  });
+}
+
+export async function addFrontIceCandidate(callId: string, candidate: WebRtcIceCandidate) {
+  const db = getFirestoreDb();
+  const callRef = doc(db, "calls", callId);
+
+  await updateDoc(callRef, {
+    front_ice_candidates: arrayUnion(candidate),
+    updated_at: serverTimestamp(),
+  });
+}
+
+export async function markCallConnected(callId: string) {
+  const db = getFirestoreDb();
+  const callRef = doc(db, "calls", callId);
+
+  await updateDoc(callRef, {
+    webrtc_status: "connected",
+    connected_at: serverTimestamp(),
+    updated_at: serverTimestamp(),
+  });
 }
 
 export async function acceptHumanThread(threadId: string, staffUserId: string) {
