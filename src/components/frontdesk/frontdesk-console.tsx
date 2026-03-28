@@ -541,14 +541,23 @@ export function FrontdeskConsole() {
           guestIceCandidatesCount: activeCall.guest_ice_candidates?.length ?? 0,
         });
 
-        if (activeCall.offer_sdp && !activePeerConnection.currentRemoteDescription) {
+        let hasRemoteDescription = Boolean(
+          activePeerConnection.currentRemoteDescription ?? activePeerConnection.pendingRemoteDescription,
+        );
+
+        if (activeCall.offer_sdp && !hasRemoteDescription) {
           setAudioCallState("answering");
           await activePeerConnection.setRemoteDescription(activeCall.offer_sdp);
+          hasRemoteDescription = true;
+          console.log("[frontdesk/webrtc] remote description applied", {
+            callId: activeCall.id,
+            remoteDescriptionType: activeCall.offer_sdp.type,
+          });
         }
 
         if (
           activeCall.offer_sdp &&
-          activePeerConnection.currentRemoteDescription &&
+          hasRemoteDescription &&
           !activePeerConnection.currentLocalDescription &&
           !activeCall.answer_sdp
         ) {
