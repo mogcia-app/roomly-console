@@ -267,6 +267,8 @@ export function FrontdeskConsole() {
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const activeWebRtcCallIdRef = useRef<string | null>(null);
   const appliedGuestCandidatesRef = useRef<Set<string>>(new Set());
+  const signalingSyncInFlightCallIdRef = useRef<string | null>(null);
+  const answerPersistedCallIdsRef = useRef<Set<string>>(new Set());
 
   const role = claims?.role;
   const canOperate = role === "hotel_front" || role === "hotel_admin";
@@ -346,7 +348,9 @@ export function FrontdeskConsole() {
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
       activeWebRtcCallIdRef.current = null;
+      signalingSyncInFlightCallIdRef.current = null;
       appliedGuestCandidates.clear();
+      answerPersistedCallIdsRef.current.clear();
     };
   }, []);
 
@@ -421,6 +425,7 @@ export function FrontdeskConsole() {
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
       activeWebRtcCallIdRef.current = null;
+      signalingSyncInFlightCallIdRef.current = null;
       appliedGuestCandidatesRef.current.clear();
       return;
     }
@@ -575,6 +580,12 @@ export function FrontdeskConsole() {
     let cancelled = false;
 
     async function syncWebRtc() {
+      if (signalingSyncInFlightCallIdRef.current === activeCall.id) {
+        return;
+      }
+
+      signalingSyncInFlightCallIdRef.current = activeCall.id;
+
       try {
         console.log("[frontdesk/webrtc] signaling snapshot", {
           callId: activeCall.id,
@@ -587,7 +598,11 @@ export function FrontdeskConsole() {
           activePeerConnection.currentRemoteDescription ?? activePeerConnection.pendingRemoteDescription,
         );
 
-        if (activeCall.offer_sdp && !hasRemoteDescription) {
+        if (
+          activeCall.offer_sdp &&
+          !hasRemoteDescription &&
+          activePeerConnection.signalingState === "stable"
+        ) {
           setAudioCallState("answering");
           await activePeerConnection.setRemoteDescription(activeCall.offer_sdp);
           hasRemoteDescription = true;
@@ -601,7 +616,9 @@ export function FrontdeskConsole() {
           activeCall.offer_sdp &&
           hasRemoteDescription &&
           !activePeerConnection.currentLocalDescription &&
-          !activeCall.answer_sdp
+          !activeCall.answer_sdp &&
+          !answerPersistedCallIdsRef.current.has(activeCall.id) &&
+          activePeerConnection.signalingState === "have-remote-offer"
         ) {
           const answer = await activePeerConnection.createAnswer();
           await activePeerConnection.setLocalDescription(answer);
@@ -619,6 +636,7 @@ export function FrontdeskConsole() {
             sdp: answer.sdp ?? "",
             type: "answer",
           });
+          answerPersistedCallIdsRef.current.add(activeCall.id);
           setAudioCallState("connecting");
         }
 
@@ -638,6 +656,10 @@ export function FrontdeskConsole() {
       } catch (error) {
         console.error("[frontdesk/webrtc] signaling sync failed", error);
         setAudioCallState("failed");
+      } finally {
+        if (signalingSyncInFlightCallIdRef.current === activeCall.id) {
+          signalingSyncInFlightCallIdRef.current = null;
+        }
       }
     }
 
