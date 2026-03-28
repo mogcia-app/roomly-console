@@ -330,6 +330,14 @@ export function FrontdeskConsole() {
   );
 
   useEffect(() => {
+    console.log("[frontdesk/webrtc] active calls snapshot", {
+      activeCallsCount: activeCalls.data.length,
+      currentWebRtcCallId: currentWebRtcCall?.id ?? null,
+      currentWebRtcCallStatus: currentWebRtcCall?.status ?? null,
+    });
+  }, [activeCalls.data.length, currentWebRtcCall?.id, currentWebRtcCall?.status]);
+
+  useEffect(() => {
     const appliedGuestCandidates = appliedGuestCandidatesRef.current;
 
     return () => {
@@ -430,6 +438,11 @@ export function FrontdeskConsole() {
 
     async function prepareReceiver() {
       try {
+        console.log("[frontdesk/webrtc] prepare receiver", {
+          callId: activeCall.id,
+          hasOffer: Boolean(activeCall.offer_sdp),
+          guestIceCandidatesCount: activeCall.guest_ice_candidates?.length ?? 0,
+        });
         setAudioCallState("waiting_offer");
         peerConnectionRef.current?.close();
         peerConnectionRef.current = null;
@@ -437,23 +450,35 @@ export function FrontdeskConsole() {
         localStreamRef.current = null;
         appliedGuestCandidatesRef.current.clear();
 
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-
         const peerConnection = new RTCPeerConnection({
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
+
+        let stream: MediaStream | null = null;
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (error) {
+          console.error("[frontdesk/webrtc] microphone unavailable, continuing in listen-only mode", error);
+        }
+
+        if (cancelled) {
+          stream?.getTracks().forEach((track) => track.stop());
+          peerConnection.close();
+          return;
+        }
 
         activeWebRtcCallIdRef.current = activeCall.id;
         localStreamRef.current = stream;
         peerConnectionRef.current = peerConnection;
 
-        stream.getTracks().forEach((track) => {
-          peerConnection.addTrack(track, stream);
-        });
+        if (stream) {
+          stream.getTracks().forEach((track) => {
+            peerConnection.addTrack(track, stream);
+          });
+        } else {
+          peerConnection.addTransceiver("audio", { direction: "recvonly" });
+        }
 
         peerConnection.onicecandidate = (event) => {
           if (!event.candidate || activeWebRtcCallIdRef.current !== activeCall.id) {
@@ -482,7 +507,8 @@ export function FrontdeskConsole() {
             setAudioCallState("failed");
           }
         };
-      } catch {
+      } catch (error) {
+        console.error("[frontdesk/webrtc] receiver setup failed", error);
         setAudioCallState("failed");
       }
     }
@@ -508,6 +534,13 @@ export function FrontdeskConsole() {
 
     async function syncWebRtc() {
       try {
+        console.log("[frontdesk/webrtc] signaling snapshot", {
+          callId: activeCall.id,
+          hasOffer: Boolean(activeCall.offer_sdp),
+          hasAnswer: Boolean(activeCall.answer_sdp),
+          guestIceCandidatesCount: activeCall.guest_ice_candidates?.length ?? 0,
+        });
+
         if (activeCall.offer_sdp && !activePeerConnection.currentRemoteDescription) {
           setAudioCallState("answering");
           await activePeerConnection.setRemoteDescription(activeCall.offer_sdp);
@@ -526,6 +559,11 @@ export function FrontdeskConsole() {
             return;
           }
 
+          console.log("[frontdesk/webrtc] saving answer", {
+            callId: activeCall.id,
+            hasOffer: Boolean(activeCall.offer_sdp),
+            localDescriptionType: answer.type,
+          });
           await saveCallAnswer(activeCall.id, {
             sdp: answer.sdp ?? "",
             type: "answer",
@@ -542,7 +580,8 @@ export function FrontdeskConsole() {
           await activePeerConnection.addIceCandidate(candidate);
           appliedGuestCandidatesRef.current.add(key);
         }
-      } catch {
+      } catch (error) {
+        console.error("[frontdesk/webrtc] signaling sync failed", error);
         setAudioCallState("failed");
       }
     }
