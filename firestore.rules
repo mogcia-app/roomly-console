@@ -26,15 +26,22 @@ service cloud.firestore {
       return resourceHotelId is string && resourceHotelId == hotelId();
     }
 
-    function hasOnlyChangedKeys(allowedKeys) {
-      return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowedKeys);
+    function isGuestWebRtcCall() {
+      return resource.data.hotel_id == "7Bg2xD9pcRmXOllPu2US"
+        && resource.data.direction == "guest_to_front"
+        && resource.data.initiated_by == "guest"
+        && resource.data.room_id is string
+        && resource.data.stay_id is string
+        && resource.data.thread_id is string;
     }
 
-    match /calls/{callId} {
-      allow read: if isFrontRole() && belongsToHotel(resource.data.hotel_id);
-      allow create, delete: if false;
-      allow update: if isFrontRole()
-        && belongsToHotel(resource.data.hotel_id)
+    function isGuestWebRtcUpdate() {
+      return hasOnlyChangedKeys([
+          "offer_sdp",
+          "guest_ice_candidates",
+          "webrtc_status",
+          "updated_at"
+        ])
         && request.resource.data.hotel_id == resource.data.hotel_id
         && request.resource.data.room_id == resource.data.room_id
         && request.resource.data.stay_id == resource.data.stay_id
@@ -42,18 +49,51 @@ service cloud.firestore {
         && request.resource.data.thread_id == resource.data.thread_id
         && request.resource.data.direction == resource.data.direction
         && request.resource.data.initiated_by == resource.data.initiated_by
-        && hasOnlyChangedKeys([
-          "status",
-          "updated_at",
-          "accepted_by",
-          "accepted_at",
-          "ended_at",
-          "timed_out_at",
-          "answer_sdp",
-          "front_ice_candidates",
-          "webrtc_status",
-          "connected_at"
-        ]);
+        && request.resource.data.offer_sdp is map
+        && request.resource.data.offer_sdp.type == "offer"
+        && request.resource.data.offer_sdp.sdp is string
+        && request.resource.data.guest_ice_candidates is list
+        && request.resource.data.webrtc_status in [
+          "waiting_offer",
+          "connected",
+          "failed"
+        ];
+    }
+
+    function hasOnlyChangedKeys(allowedKeys) {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowedKeys);
+    }
+
+    match /calls/{callId} {
+      allow read: if (isFrontRole() && belongsToHotel(resource.data.hotel_id))
+        || isGuestWebRtcCall();
+      allow create, delete: if false;
+      allow update: if (
+          isFrontRole()
+          && belongsToHotel(resource.data.hotel_id)
+          && request.resource.data.hotel_id == resource.data.hotel_id
+          && request.resource.data.room_id == resource.data.room_id
+          && request.resource.data.stay_id == resource.data.stay_id
+          && request.resource.data.guest_lang == resource.data.guest_lang
+          && request.resource.data.thread_id == resource.data.thread_id
+          && request.resource.data.direction == resource.data.direction
+          && request.resource.data.initiated_by == resource.data.initiated_by
+          && hasOnlyChangedKeys([
+            "status",
+            "updated_at",
+            "accepted_by",
+            "accepted_at",
+            "ended_at",
+            "timed_out_at",
+            "answer_sdp",
+            "front_ice_candidates",
+            "webrtc_status",
+            "connected_at"
+          ])
+        ) || (
+          isGuestWebRtcCall()
+          && isGuestWebRtcUpdate()
+        );
     }
 
     match /chat_threads/{threadId} {
