@@ -230,7 +230,7 @@ export function FrontdeskConsole() {
   );
   const effectiveSelectedThreadId = selectedThread?.id ?? "";
   const threadMessages = useThreadMessages(effectiveSelectedThreadId);
-  const threadCalls = useThreadCalls(effectiveSelectedThreadId);
+  const threadCalls = useThreadCalls(hotelId, effectiveSelectedThreadId);
   const selectedActiveCall = activeCalls.data[0] ?? null;
   const selectedThreadCall = useMemo(
     () =>
@@ -241,7 +241,10 @@ export function FrontdeskConsole() {
     [threadCalls.data],
   );
   const hasConnectionContext = Boolean(hotelId && staffUserId && canOperate);
-  const selectedThreadMessages = selectedThread ? threadMessages.data : [];
+  const selectedThreadMessages = useMemo(
+    () => (selectedThread ? threadMessages.data.filter((message) => message.sender !== "system") : []),
+    [selectedThread, threadMessages.data],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {

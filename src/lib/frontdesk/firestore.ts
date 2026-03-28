@@ -48,12 +48,14 @@ export function subscribeQueueCalls(
 }
 
 export function subscribeThreadCalls(
+  hotelId: string,
   threadId: string,
   onData: (calls: CallRecord[]) => void,
   onError: (error: Error) => void,
 ) {
   const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
+    where("hotel_id", "==", hotelId),
     where("thread_id", "==", threadId),
     where("status", "in", ["queue", "active", "unavailable"]),
     orderBy("updated_at", "desc"),

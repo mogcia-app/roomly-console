@@ -71,18 +71,18 @@ export function useThreadMessages(threadId: string) {
   });
 }
 
-export function useThreadCalls(threadId: string) {
+export function useThreadCalls(hotelId: string, threadId: string) {
   const subscribe = useMemo(
     () =>
       (
-        onData: Parameters<typeof subscribeThreadCalls>[1],
-        onError: Parameters<typeof subscribeThreadCalls>[2],
-      ) => subscribeThreadCalls(threadId, onData, onError),
-    [threadId],
+        onData: Parameters<typeof subscribeThreadCalls>[2],
+        onError: Parameters<typeof subscribeThreadCalls>[3],
+      ) => subscribeThreadCalls(hotelId, threadId, onData, onError),
+    [hotelId, threadId],
   );
 
   return useRealtimeCollection({
-    enabled: Boolean(threadId),
+    enabled: Boolean(hotelId && threadId),
     subscribe,
   });
 }
