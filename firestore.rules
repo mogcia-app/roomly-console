@@ -35,24 +35,43 @@ service cloud.firestore {
         && resource.data.thread_id is string;
     }
 
-    function isGuestWebRtcUpdate() {
-      return hasOnlyChangedKeys([
-          "offer_sdp",
-          "guest_ice_candidates",
-          "webrtc_status",
-          "updated_at"
-        ])
+    function guestCallMetadataUnchanged() {
+      return request.resource.data.hotel_id == resource.data.hotel_id
         && request.resource.data.hotel_id == resource.data.hotel_id
         && request.resource.data.room_id == resource.data.room_id
         && request.resource.data.stay_id == resource.data.stay_id
         && request.resource.data.guest_lang == resource.data.guest_lang
         && request.resource.data.thread_id == resource.data.thread_id
         && request.resource.data.direction == resource.data.direction
-        && request.resource.data.initiated_by == resource.data.initiated_by
+        && request.resource.data.initiated_by == resource.data.initiated_by;
+    }
+
+    function isGuestOfferUpdate() {
+      return hasOnlyChangedKeys([
+          "offer_sdp",
+          "webrtc_status"
+        ])
+        && guestCallMetadataUnchanged()
         && request.resource.data.offer_sdp is map
         && request.resource.data.offer_sdp.type == "offer"
         && request.resource.data.offer_sdp.sdp is string
+        && request.resource.data.webrtc_status == "waiting_offer";
+    }
+
+    function isGuestIceUpdate() {
+      return hasOnlyChangedKeys([
+          "guest_ice_candidates"
+        ])
+        && guestCallMetadataUnchanged()
         && request.resource.data.guest_ice_candidates is list
+        ;
+    }
+
+    function isGuestWebRtcStatusUpdate() {
+      return hasOnlyChangedKeys([
+          "webrtc_status"
+        ])
+        && guestCallMetadataUnchanged()
         && request.resource.data.webrtc_status in [
           "waiting_offer",
           "connected",
@@ -92,7 +111,11 @@ service cloud.firestore {
           ])
         ) || (
           isGuestWebRtcCall()
-          && isGuestWebRtcUpdate()
+          && (
+            isGuestOfferUpdate()
+            || isGuestIceUpdate()
+            || isGuestWebRtcStatusUpdate()
+          )
         );
     }
 
