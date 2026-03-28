@@ -5,11 +5,14 @@ import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import {
   acceptCall,
+  addFrontIceCandidate,
   acceptHumanThread,
   endCall,
+  markCallConnected,
   markThreadSeenByFront,
   markCallUnavailable,
   resolveHumanThread,
+  saveCallAnswer,
   sendFrontMessage,
 } from "@/lib/frontdesk/firestore";
 import {
@@ -20,7 +23,7 @@ import {
   formatTime,
 } from "@/lib/frontdesk/format";
 import { FRONTDESK_NOTIFICATION_ENABLED_KEY } from "@/lib/frontdesk/preferences";
-import type { CallRecord, ChatThreadRecord } from "@/lib/frontdesk/types";
+import type { CallRecord, ChatThreadRecord, WebRtcIceCandidate } from "@/lib/frontdesk/types";
 import { useActiveCalls, useHumanThreads, useQueueCalls, useThreadCalls, useThreadMessages } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
 
@@ -32,6 +35,7 @@ type ActionState = {
 } | null;
 
 type MobilePane = "list" | "chat";
+type AudioCallState = "idle" | "waiting_offer" | "answering" | "connecting" | "connected" | "failed";
 
 function statusTone(status: CallRecord["status"] | ChatThreadRecord["status"]) {
   switch (status) {
@@ -187,6 +191,66 @@ function ThreadListCard({
   );
 }
 
+function IncomingCallOverlay({
+  call,
+  disabled,
+  onAccept,
+  onDecline,
+}: {
+  call: CallRecord;
+  disabled: boolean;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 bg-gradient-to-br from-[#2b1815]/95 via-[#5a221d]/92 to-[#1a1210]/95 text-white backdrop-blur-sm">
+      <div className="flex min-h-dvh items-center justify-center p-4 sm:p-6">
+        <div className="w-full max-w-md rounded-[32px] border border-white/15 bg-white/10 p-6 text-center shadow-[0_30px_120px_rgba(0,0,0,0.45)] backdrop-blur-xl sm:rounded-[36px] sm:p-8">
+          <p className="text-xs font-medium tracking-[0.24em] text-white/70 sm:text-sm sm:tracking-[0.3em]">INCOMING CALL</p>
+          <div className="mt-6 flex justify-center sm:mt-8">
+            <div className="grid h-20 w-20 place-items-center rounded-full border border-white/15 bg-white/10 text-xl font-semibold sm:h-24 sm:w-24 sm:text-2xl">
+              {(call.room_number ?? call.room_id).slice(0, 1)}
+            </div>
+          </div>
+          <h2 className="mt-5 text-2xl font-semibold tracking-tight sm:mt-6 sm:text-3xl">
+            {formatRoomLabel(call.room_id, call.room_number)}
+          </h2>
+          <p className="mt-3 text-sm text-white/75">
+            {formatInquiryType(call.event_type, "call")} / {call.guest_lang}
+          </p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white/85">
+              {formatTime(call.updated_at)}
+            </span>
+            {call.emergency ? (
+              <span className="rounded-full bg-[#fff1ef] px-3 py-1 text-xs font-semibold text-[#ad2218]">緊急</span>
+            ) : null}
+          </div>
+          <p className="mt-8 text-sm text-white/65 sm:mt-10">受話すると、このまま音声接続に切り替わります。</p>
+          <div className="mt-7 flex items-center justify-center gap-4 sm:mt-8">
+            <button
+              type="button"
+              className="grid h-16 w-16 place-items-center rounded-full bg-white/12 text-sm font-semibold text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={disabled}
+              onClick={onDecline}
+            >
+              拒否
+            </button>
+            <button
+              type="button"
+              className="grid h-20 w-20 place-items-center rounded-full bg-[#34c759] text-sm font-semibold text-white shadow-[0_12px_30px_rgba(52,199,89,0.35)] transition hover:scale-[1.02] hover:bg-[#2eb453] disabled:cursor-not-allowed disabled:bg-stone-400"
+              disabled={disabled}
+              onClick={onAccept}
+            >
+              応答
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FrontdeskConsole() {
   const { user, claims, isLoading: authLoading, error: authError, login, logout } = useHotelAuth();
   const [selectedThreadId, setSelectedThreadId] = useState("");
@@ -195,11 +259,22 @@ export function FrontdeskConsole() {
   const [actionState, setActionState] = useState<ActionState>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>("list");
   const [isPending, startUiTransition] = useTransition();
+  const [audioCallState, setAudioCallState] = useState<AudioCallState>("idle");
   const notifiedCallIdsRef = useRef<Set<string>>(new Set());
   const notifiedThreadIdsRef = useRef<Set<string>>(new Set());
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const activeWebRtcCallIdRef = useRef<string | null>(null);
+  const appliedGuestCandidatesRef = useRef<Set<string>>(new Set());
 
   const role = claims?.role;
   const canOperate = role === "hotel_front" || role === "hotel_admin";
+  const isWebRtcSupported =
+    typeof window !== "undefined" &&
+    typeof RTCPeerConnection !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia);
   const hotelId = useDeferredValue((claims?.hotel_id ?? defaultHotelId).trim());
   const staffUserId = useDeferredValue(user?.uid ?? "");
 
@@ -209,6 +284,7 @@ export function FrontdeskConsole() {
 
   const prioritizedCalls = useMemo(() => sortByPriority(queueCalls.data), [queueCalls.data]);
   const prioritizedThreads = useMemo(() => sortByPriority(humanThreads.data), [humanThreads.data]);
+  const incomingCall = prioritizedCalls[0] ?? null;
   const filteredThreads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
@@ -241,10 +317,29 @@ export function FrontdeskConsole() {
     [threadCalls.data],
   );
   const hasConnectionContext = Boolean(hotelId && staffUserId && canOperate);
+  const displayedAudioCallState =
+    selectedThreadCall?.status === "active"
+      ? isWebRtcSupported
+        ? audioCallState
+        : "failed"
+      : "idle";
   const selectedThreadMessages = useMemo(
     () => (selectedThread ? threadMessages.data.filter((message) => message.sender !== "system") : []),
     [selectedThread, threadMessages.data],
   );
+
+  useEffect(() => {
+    const appliedGuestCandidates = appliedGuestCandidatesRef.current;
+
+    return () => {
+      peerConnectionRef.current?.close();
+      peerConnectionRef.current = null;
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      activeWebRtcCallIdRef.current = null;
+      appliedGuestCandidates.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -308,6 +403,156 @@ export function FrontdeskConsole() {
     void markThreadSeenByFront(selectedThread.id);
   }, [hasConnectionContext, selectedThread]);
 
+  useEffect(() => {
+    const currentCall = selectedThreadCall;
+
+    if (!currentCall || currentCall.status !== "active") {
+      peerConnectionRef.current?.close();
+      peerConnectionRef.current = null;
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+      activeWebRtcCallIdRef.current = null;
+      appliedGuestCandidatesRef.current.clear();
+      return;
+    }
+
+    if (!isWebRtcSupported) {
+      return;
+    }
+
+    if (activeWebRtcCallIdRef.current === currentCall.id && peerConnectionRef.current) {
+      return;
+    }
+
+    const activeCall = currentCall;
+    let cancelled = false;
+
+    async function prepareReceiver() {
+      try {
+        setAudioCallState("waiting_offer");
+        peerConnectionRef.current?.close();
+        peerConnectionRef.current = null;
+        localStreamRef.current?.getTracks().forEach((track) => track.stop());
+        localStreamRef.current = null;
+        appliedGuestCandidatesRef.current.clear();
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        const peerConnection = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        });
+
+        activeWebRtcCallIdRef.current = activeCall.id;
+        localStreamRef.current = stream;
+        peerConnectionRef.current = peerConnection;
+
+        stream.getTracks().forEach((track) => {
+          peerConnection.addTrack(track, stream);
+        });
+
+        peerConnection.onicecandidate = (event) => {
+          if (!event.candidate || activeWebRtcCallIdRef.current !== activeCall.id) {
+            return;
+          }
+
+          const candidate = event.candidate.toJSON() as WebRtcIceCandidate;
+          void addFrontIceCandidate(activeCall.id, candidate);
+        };
+
+        peerConnection.ontrack = (event) => {
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = event.streams[0] ?? null;
+            void remoteAudioRef.current.play().catch(() => undefined);
+          }
+        };
+
+        peerConnection.onconnectionstatechange = () => {
+          if (peerConnection.connectionState === "connected") {
+            setAudioCallState("connected");
+            void markCallConnected(activeCall.id);
+            return;
+          }
+
+          if (peerConnection.connectionState === "failed" || peerConnection.connectionState === "disconnected") {
+            setAudioCallState("failed");
+          }
+        };
+      } catch {
+        setAudioCallState("failed");
+      }
+    }
+
+    void prepareReceiver();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isWebRtcSupported, selectedThreadCall]);
+
+  useEffect(() => {
+    const currentCall = selectedThreadCall;
+    const peerConnection = peerConnectionRef.current;
+
+    if (!currentCall || currentCall.status !== "active" || !peerConnection || activeWebRtcCallIdRef.current !== currentCall.id) {
+      return;
+    }
+
+    const activeCall = currentCall;
+    const activePeerConnection = peerConnection;
+    let cancelled = false;
+
+    async function syncWebRtc() {
+      try {
+        if (activeCall.offer_sdp && !activePeerConnection.currentRemoteDescription) {
+          setAudioCallState("answering");
+          await activePeerConnection.setRemoteDescription(activeCall.offer_sdp);
+        }
+
+        if (
+          activeCall.offer_sdp &&
+          activePeerConnection.currentRemoteDescription &&
+          !activePeerConnection.currentLocalDescription &&
+          !activeCall.answer_sdp
+        ) {
+          const answer = await activePeerConnection.createAnswer();
+          await activePeerConnection.setLocalDescription(answer);
+
+          if (cancelled) {
+            return;
+          }
+
+          await saveCallAnswer(activeCall.id, {
+            sdp: answer.sdp ?? "",
+            type: "answer",
+          });
+          setAudioCallState("connecting");
+        }
+
+        for (const candidate of activeCall.guest_ice_candidates ?? []) {
+          const key = JSON.stringify(candidate);
+          if (appliedGuestCandidatesRef.current.has(key)) {
+            continue;
+          }
+
+          await activePeerConnection.addIceCandidate(candidate);
+          appliedGuestCandidatesRef.current.add(key);
+        }
+      } catch {
+        setAudioCallState("failed");
+      }
+    }
+
+    void syncWebRtc();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedThreadCall]);
+
   if (!user) {
     return (
       <HotelAuthCard
@@ -343,6 +588,28 @@ export function FrontdeskConsole() {
     });
   }
 
+  function handleIncomingCallAccept(call: CallRecord) {
+    if (call.thread_id) {
+      handleSelectThread(call.thread_id);
+    }
+
+    void runAction(
+      () => acceptCall(call.id),
+      `${formatRoomLabel(call.room_id, call.room_number)} の通話を受けました。`,
+    );
+  }
+
+  function handleIncomingCallDecline(call: CallRecord) {
+    if (call.thread_id) {
+      handleSelectThread(call.thread_id);
+    }
+
+    void runAction(
+      () => markCallUnavailable(call.id),
+      `${formatRoomLabel(call.room_id, call.room_number)} の通話を不在扱いにしました。`,
+    );
+  }
+
   return (
     <FrontdeskShell
       pageSubtitle="チャットと着信を同じ画面で処理します。"
@@ -350,6 +617,14 @@ export function FrontdeskConsole() {
       onLogout={() => logout()}
       variant="messenger"
     >
+          {incomingCall ? (
+            <IncomingCallOverlay
+              call={incomingCall}
+              disabled={!hasConnectionContext || isPending}
+              onAccept={() => handleIncomingCallAccept(incomingCall)}
+              onDecline={() => handleIncomingCallDecline(incomingCall)}
+            />
+          ) : null}
           {!canOperate ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
               このアカウントには `hotel_front` または `hotel_admin` の custom claim が必要です。現在の role: {role ?? "未設定"}
@@ -368,15 +643,15 @@ export function FrontdeskConsole() {
             </div>
           ) : null}
 
-          <div className="grid min-h-[calc(100vh-77px)] gap-0 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="grid min-h-[calc(100dvh-129px)] gap-0 lg:min-h-[calc(100vh-77px)] lg:grid-cols-[360px_minmax(0,1fr)]">
             <aside
               id="priority"
-              className={`${mobilePane === "chat" ? "hidden" : "block"} border-r border-stone-200 bg-[#f7f6f3] lg:block`}
+              className={`${mobilePane === "chat" ? "hidden" : "block"} bg-[#f7f6f3] lg:block lg:border-r lg:border-stone-200`}
             >
               <div className="border-b border-stone-200 bg-white px-4 py-4 sm:px-5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-2xl font-semibold text-stone-950">トーク</h2>
+                    <h2 className="text-xl font-semibold text-stone-950 sm:text-2xl">トーク</h2>
                     <p className="text-sm text-stone-500">着信とチャットをまとめて確認</p>
                   </div>
                   <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-600">
@@ -396,10 +671,10 @@ export function FrontdeskConsole() {
                 </div>
               </div>
 
-              <div className="max-h-[calc(100vh-217px)] space-y-3 overflow-y-auto p-4">
+              <div className="space-y-3 overflow-y-auto p-4 lg:max-h-[calc(100vh-217px)]">
                 {selectedActiveCall ? (
                   <div className="rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="font-medium text-stone-950">
                           {formatRoomLabel(selectedActiveCall.room_id, selectedActiveCall.room_number)}
@@ -473,7 +748,7 @@ export function FrontdeskConsole() {
               className={`${mobilePane === "list" ? "hidden" : "block"} bg-[#ece8e1] lg:block`}
             >
               <div className="border-b border-stone-200 bg-white px-4 py-4 sm:px-6">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col gap-4">
                   <div className="min-w-0">
                     <button
                       type="button"
@@ -500,7 +775,7 @@ export function FrontdeskConsole() {
                       </div>
                     </div>
                   </div>
-                <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {selectedThreadCall ? (
                       <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusTone(selectedThreadCall.status)}`}>
                         {selectedThreadCall.status === "queue"
@@ -510,6 +785,21 @@ export function FrontdeskConsole() {
                             : selectedThreadCall.status === "unavailable"
                               ? "不在"
                             : formatStatusLabel(selectedThreadCall.status)}
+                      </span>
+                    ) : null}
+                    {selectedThreadCall?.status === "active" ? (
+                      <span className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-semibold text-stone-600">
+                        {displayedAudioCallState === "waiting_offer"
+                          ? "通話準備中"
+                          : displayedAudioCallState === "answering"
+                            ? "応答生成中"
+                            : displayedAudioCallState === "connecting"
+                              ? "接続中"
+                              : displayedAudioCallState === "connected"
+                                ? "音声接続中"
+                                : displayedAudioCallState === "failed"
+                                  ? "通話失敗"
+                                  : "待機中"}
                       </span>
                     ) : null}
                     {selectedThread?.emergency ? (
@@ -594,8 +884,9 @@ export function FrontdeskConsole() {
                 </div>
               </div>
 
-              <div className="flex min-h-[calc(100vh-161px)] flex-col">
-                <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+              <div className="flex min-h-[calc(100dvh-213px)] flex-col lg:min-h-[calc(100vh-161px)]">
+                <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+                <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-5 sm:py-5">
                   {selectedThreadId && threadCalls.isLoading ? (
                     <p className="text-sm text-stone-500">通話状態を読み込み中です。</p>
                   ) : null}
@@ -618,7 +909,7 @@ export function FrontdeskConsole() {
                     const isFront = message.sender === "front";
                     return (
                       <article key={message.id} className={`flex ${isFront ? "justify-end" : "justify-start"}`}>
-                        <div className={`flex max-w-[82%] items-end gap-2 ${isFront ? "flex-row-reverse" : ""}`}>
+                        <div className={`flex max-w-[90%] items-end gap-2 sm:max-w-[82%] ${isFront ? "flex-row-reverse" : ""}`}>
                           <div
                             className={`rounded-[22px] px-4 py-3 shadow-sm ${
                               isFront ? "bg-[#ad2218] text-white" : "border border-stone-200 bg-white text-stone-900"

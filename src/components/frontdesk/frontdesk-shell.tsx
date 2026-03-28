@@ -19,12 +19,12 @@ export function FrontdeskShell({
   variant = "default",
 }: FrontdeskShellProps) {
   return (
-    <div className="min-h-screen bg-[#f3f2ef] text-stone-900 lg:grid lg:grid-cols-[76px_minmax(0,1fr)]">
-      <div className="border-r border-stone-200 bg-white lg:sticky lg:top-0 lg:h-screen">
+    <div className="min-h-dvh bg-[#f3f2ef] text-stone-900 lg:grid lg:grid-cols-[76px_minmax(0,1fr)]">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 backdrop-blur lg:static lg:border-r lg:border-t-0 lg:bg-white">
         <FrontdeskSidebar onLogout={onLogout} />
       </div>
 
-      <main className="min-w-0">
+      <main className="min-w-0 pb-22 lg:pb-0">
         <header
           className={`sticky top-0 z-20 border-b border-stone-200 bg-white/95 backdrop-blur ${
             variant === "messenger" ? "px-4 py-3 sm:px-6" : "px-4 py-4 sm:px-6"

@@ -20,13 +20,13 @@ export function FrontdeskSidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-full flex-col items-center overflow-hidden bg-white py-4">
-      <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[#ad2218] text-sm font-semibold text-white shadow-sm">
+    <aside className="flex items-center justify-between gap-3 overflow-x-auto px-4 py-3 lg:h-full lg:flex-col lg:justify-start lg:overflow-hidden lg:px-0 lg:py-4">
+      <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#ad2218] text-sm font-semibold text-white shadow-sm">
         室
       </div>
 
-      <div className="mt-6">
-        <nav className="space-y-3">
+      <div className="min-w-0 flex-1 lg:mt-6 lg:flex-none">
+        <nav className="flex items-center gap-2 lg:block lg:space-y-3">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
 
@@ -36,7 +36,7 @@ export function FrontdeskSidebar({
                 href={item.href}
                 aria-label={item.label}
                 title={item.label}
-                className={`flex h-11 w-12 items-center justify-center rounded-2xl text-xs font-semibold transition ${
+                className={`flex h-11 min-w-16 items-center justify-center rounded-2xl px-3 text-xs font-semibold transition lg:w-12 lg:min-w-0 lg:px-0 ${
                   isActive ? "bg-[#fff1ef] shadow-sm ring-1 ring-[#f0c6c2]" : "hover:bg-stone-100"
                 }`}
               >
@@ -47,7 +47,7 @@ export function FrontdeskSidebar({
         </nav>
       </div>
 
-      <div className="mt-auto">
+      <div className="shrink-0 lg:mt-auto">
         <button
           type="button"
           aria-label="ログアウト"
