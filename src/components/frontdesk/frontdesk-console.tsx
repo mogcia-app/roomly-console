@@ -316,9 +316,10 @@ export function FrontdeskConsole() {
       null,
     [threadCalls.data],
   );
+  const currentWebRtcCall = selectedActiveCall ?? null;
   const hasConnectionContext = Boolean(hotelId && staffUserId && canOperate);
   const displayedAudioCallState =
-    selectedThreadCall?.status === "active"
+    currentWebRtcCall?.status === "active"
       ? isWebRtcSupported
         ? audioCallState
         : "failed"
@@ -404,7 +405,7 @@ export function FrontdeskConsole() {
   }, [hasConnectionContext, selectedThread]);
 
   useEffect(() => {
-    const currentCall = selectedThreadCall;
+    const currentCall = currentWebRtcCall;
 
     if (!currentCall || currentCall.status !== "active") {
       peerConnectionRef.current?.close();
@@ -491,10 +492,10 @@ export function FrontdeskConsole() {
     return () => {
       cancelled = true;
     };
-  }, [isWebRtcSupported, selectedThreadCall]);
+  }, [currentWebRtcCall, isWebRtcSupported]);
 
   useEffect(() => {
-    const currentCall = selectedThreadCall;
+    const currentCall = currentWebRtcCall;
     const peerConnection = peerConnectionRef.current;
 
     if (!currentCall || currentCall.status !== "active" || !peerConnection || activeWebRtcCallIdRef.current !== currentCall.id) {
@@ -551,7 +552,7 @@ export function FrontdeskConsole() {
     return () => {
       cancelled = true;
     };
-  }, [selectedThreadCall]);
+  }, [currentWebRtcCall]);
 
   if (!user) {
     return (
@@ -714,12 +715,7 @@ export function FrontdeskConsole() {
                     key={call.id}
                     call={call}
                     disabled={!hasConnectionContext || isPending}
-                    onAccept={() =>
-                      void runAction(
-                        () => acceptCall(call.id),
-                        `${formatRoomLabel(call.room_id, call.room_number)} の通話を受けました。`,
-                      )
-                    }
+                    onAccept={() => handleIncomingCallAccept(call)}
                   />
                 ))}
 
