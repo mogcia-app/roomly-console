@@ -28,19 +28,35 @@ const initialState: AuthState = {
   error: null,
 };
 
+const LOCAL_MANUAL_LOGIN_KEY = "roomly-console:local-manual-login";
+
 export function useHotelAuth() {
   const [state, setState] = useState<AuthState>(initialState);
 
   useEffect(() => {
     const auth = getFirebaseAuth();
+    const isLocalhost = typeof window !== "undefined" && window.location.hostname === "localhost";
+    let forceLogoutPending = false;
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
+        forceLogoutPending = false;
         setState({
           user: null,
           claims: null,
           isLoading: false,
           error: null,
         });
+        return;
+      }
+
+      if (isLocalhost && window.sessionStorage.getItem(LOCAL_MANUAL_LOGIN_KEY) !== "allowed") {
+        forceLogoutPending = true;
+        await signOut(auth);
+        return;
+      }
+
+      if (forceLogoutPending) {
         return;
       }
 
@@ -82,11 +98,17 @@ export function useHotelAuth() {
 
   async function login(email: string, password: string) {
     const auth = getFirebaseAuth();
+    if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+      window.sessionStorage.setItem(LOCAL_MANUAL_LOGIN_KEY, "allowed");
+    }
     await signInWithEmailAndPassword(auth, email, password);
   }
 
   async function logout() {
     const auth = getFirebaseAuth();
+    if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+      window.sessionStorage.removeItem(LOCAL_MANUAL_LOGIN_KEY);
+    }
     await signOut(auth);
   }
 

@@ -7,7 +7,7 @@ export type VerifiedHotelAdmin = {
   role: string;
 };
 
-export async function verifyHotelAdminRequest(): Promise<VerifiedHotelAdmin> {
+async function verifyHotelRequest(): Promise<VerifiedHotelAdmin> {
   const authorization = (await headers()).get("authorization");
 
   if (!authorization?.startsWith("Bearer ")) {
@@ -32,4 +32,24 @@ export async function verifyHotelAdminRequest(): Promise<VerifiedHotelAdmin> {
     hotelId,
     role,
   };
+}
+
+export async function verifyHotelAdminRequest(): Promise<VerifiedHotelAdmin> {
+  const verified = await verifyHotelRequest();
+
+  if (verified.role !== "hotel_admin") {
+    throw new Error("forbidden-role");
+  }
+
+  return verified;
+}
+
+export async function verifyHotelStaffRequest(): Promise<VerifiedHotelAdmin> {
+  const verified = await verifyHotelRequest();
+
+  if (!(verified.role === "hotel_admin" || verified.role === "hotel_front")) {
+    throw new Error("forbidden-role");
+  }
+
+  return verified;
 }

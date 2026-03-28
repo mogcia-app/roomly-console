@@ -70,7 +70,7 @@ export function formatInquiryType(eventType?: string, source?: "call" | "chat") 
     case "call_ended":
       return "通話終了";
     case "call_failed":
-      return "通話失敗";
+      return "通話不在";
     case "chat_ai_started":
       return "AIチャット";
     case "chat_handoff_requested":
@@ -89,14 +89,20 @@ export function formatInquiryType(eventType?: string, source?: "call" | "chat") 
 export function formatStatusLabel(status?: string) {
   switch (status) {
     case "queue":
-      return "queued";
+      return "応答中";
     case "active":
-      return "in_progress";
+      return "通話中";
     case "ended":
-      return "resolved";
+      return "終了";
     case "unavailable":
-      return "failed";
+      return "不在";
+    case "in_progress":
+      return "対応中";
+    case "resolved":
+      return "完了";
+    case "new":
+      return "新着";
     default:
-      return status ?? "new";
+      return status ?? "未設定";
   }
 }

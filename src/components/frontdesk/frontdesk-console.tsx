@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import {
@@ -19,6 +19,7 @@ import {
   formatStatusLabel,
   formatTime,
 } from "@/lib/frontdesk/format";
+import { FRONTDESK_NOTIFICATION_ENABLED_KEY } from "@/lib/frontdesk/preferences";
 import type { CallRecord, ChatThreadRecord } from "@/lib/frontdesk/types";
 import { useActiveCalls, useHumanThreads, useQueueCalls, useThreadCalls, useThreadMessages } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
@@ -194,6 +195,8 @@ export function FrontdeskConsole() {
   const [actionState, setActionState] = useState<ActionState>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>("list");
   const [isPending, startUiTransition] = useTransition();
+  const notifiedCallIdsRef = useRef<Set<string>>(new Set());
+  const notifiedThreadIdsRef = useRef<Set<string>>(new Set());
 
   const role = claims?.role;
   const canOperate = role === "hotel_front" || role === "hotel_admin";
@@ -203,8 +206,6 @@ export function FrontdeskConsole() {
   const queueCalls = useQueueCalls(hotelId);
   const activeCalls = useActiveCalls(hotelId, staffUserId);
   const humanThreads = useHumanThreads(hotelId);
-  const threadMessages = useThreadMessages(selectedThreadId);
-  const threadCalls = useThreadCalls(selectedThreadId);
 
   const prioritizedCalls = useMemo(() => sortByPriority(queueCalls.data), [queueCalls.data]);
   const prioritizedThreads = useMemo(() => sortByPriority(humanThreads.data), [humanThreads.data]);
@@ -227,16 +228,70 @@ export function FrontdeskConsole() {
     () => filteredThreads.find((thread) => thread.id === selectedThreadId) ?? filteredThreads[0] ?? null,
     [filteredThreads, selectedThreadId],
   );
+  const effectiveSelectedThreadId = selectedThread?.id ?? "";
+  const threadMessages = useThreadMessages(effectiveSelectedThreadId);
+  const threadCalls = useThreadCalls(effectiveSelectedThreadId);
   const selectedActiveCall = activeCalls.data[0] ?? null;
   const selectedThreadCall = useMemo(
     () =>
       threadCalls.data.find((call) => call.status === "active") ??
       threadCalls.data.find((call) => call.status === "queue") ??
+      threadCalls.data.find((call) => call.status === "unavailable") ??
       null,
     [threadCalls.data],
   );
   const hasConnectionContext = Boolean(hotelId && staffUserId && canOperate);
   const selectedThreadMessages = selectedThread ? threadMessages.data : [];
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (!("Notification" in window) || Notification.permission !== "granted") {
+      return;
+    }
+
+    if (window.localStorage.getItem(FRONTDESK_NOTIFICATION_ENABLED_KEY) === "false") {
+      return;
+    }
+
+    for (const call of prioritizedCalls) {
+      if (notifiedCallIdsRef.current.has(call.id)) {
+        continue;
+      }
+
+      notifiedCallIdsRef.current.add(call.id);
+      new Notification("新しい着信", {
+        body: `${formatRoomLabel(call.room_id, call.room_number)} / ${call.guest_lang}`,
+      });
+    }
+  }, [prioritizedCalls]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (!("Notification" in window) || Notification.permission !== "granted") {
+      return;
+    }
+
+    if (window.localStorage.getItem(FRONTDESK_NOTIFICATION_ENABLED_KEY) === "false") {
+      return;
+    }
+
+    for (const thread of prioritizedThreads) {
+      if ((thread.unread_count_front ?? 0) <= 0 || notifiedThreadIdsRef.current.has(thread.id)) {
+        continue;
+      }
+
+      notifiedThreadIdsRef.current.add(thread.id);
+      new Notification("新しいフロント対応チャット", {
+        body: `${formatRoomLabel(thread.room_id, thread.room_number)} / ${thread.last_message_body ?? thread.category ?? "新着メッセージ"}`,
+      });
+    }
+  }, [prioritizedThreads]);
 
   useEffect(() => {
     if (!selectedThread || !hasConnectionContext) {
@@ -383,7 +438,7 @@ export function FrontdeskConsole() {
                     disabled={!hasConnectionContext || isPending}
                     onAccept={() =>
                       void runAction(
-                        () => acceptCall(call.id, staffUserId),
+                        () => acceptCall(call.id),
                         `${formatRoomLabel(call.room_id, call.room_number)} の通話を受けました。`,
                       )
                     }
@@ -446,9 +501,11 @@ export function FrontdeskConsole() {
                     {selectedThreadCall ? (
                       <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusTone(selectedThreadCall.status)}`}>
                         {selectedThreadCall.status === "queue"
-                          ? "応答待ち"
+                          ? "応答中"
                           : selectedThreadCall.status === "active"
                             ? "通話中"
+                            : selectedThreadCall.status === "unavailable"
+                              ? "不在"
                             : formatStatusLabel(selectedThreadCall.status)}
                       </span>
                     ) : null}
@@ -465,7 +522,7 @@ export function FrontdeskConsole() {
                           disabled={!hasConnectionContext || isPending}
                           onClick={() =>
                             void runAction(
-                              () => acceptCall(selectedThreadCall.id, staffUserId),
+                              () => acceptCall(selectedThreadCall.id),
                               `${formatRoomLabel(selectedThreadCall.room_id, selectedThreadCall.room_number)} の通話を受けました。`,
                             )
                           }

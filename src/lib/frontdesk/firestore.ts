@@ -7,8 +7,8 @@ import {
   orderBy,
   query,
   runTransaction,
-  updateDoc,
   serverTimestamp,
+  updateDoc,
   where,
   type QueryConstraint,
 } from "firebase/firestore";
@@ -55,7 +55,7 @@ export function subscribeThreadCalls(
   const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
     where("thread_id", "==", threadId),
-    where("status", "in", ["queue", "active"]),
+    where("status", "in", ["queue", "active", "unavailable"]),
     orderBy("updated_at", "desc"),
   ];
 
@@ -268,80 +268,45 @@ export function subscribeThreadMessages(
   );
 }
 
-export async function acceptCall(callId: string, staffUserId: string) {
-  const db = getFirestoreDb();
-  const callRef = doc(db, "calls", callId);
+async function getAuthorizationHeaders() {
+  const auth = (await import("@/lib/firebase")).getFirebaseAuth();
+  const currentUser = auth.currentUser;
 
-  await runTransaction(db, async (transaction) => {
-    const callSnapshot = await transaction.get(callRef);
+  if (!currentUser) {
+    throw new Error("not-authenticated");
+  }
 
-    if (!callSnapshot.exists()) {
-      throw new Error("call-not-found");
-    }
+  const token = await currentUser.getIdToken();
 
-    const call = callSnapshot.data() as Omit<CallRecord, "id">;
+  return {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+}
 
-    if (call.status !== "queue") {
-      throw new Error("call-already-handled");
-    }
-
-    transaction.update(callRef, {
-      status: "active",
-      accepted_by: staffUserId,
-      accepted_at: serverTimestamp(),
-      updated_at: serverTimestamp(),
-    });
+async function patchCall(callId: string, action: "accept" | "mark-unavailable" | "end") {
+  const response = await fetch(`/api/frontdesk/calls/${callId}`, {
+    method: "PATCH",
+    headers: await getAuthorizationHeaders(),
+    body: JSON.stringify({ action }),
   });
+  const payload = (await response.json()) as { error?: string };
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? "call-update-failed");
+  }
+}
+
+export async function acceptCall(callId: string) {
+  await patchCall(callId, "accept");
 }
 
 export async function endCall(callId: string) {
-  const db = getFirestoreDb();
-  const callRef = doc(db, "calls", callId);
-
-  await runTransaction(db, async (transaction) => {
-    const callSnapshot = await transaction.get(callRef);
-
-    if (!callSnapshot.exists()) {
-      throw new Error("call-not-found");
-    }
-
-    const call = callSnapshot.data() as Omit<CallRecord, "id">;
-
-    if (call.status !== "active") {
-      throw new Error("call-not-active");
-    }
-
-    transaction.update(callRef, {
-      status: "ended",
-      ended_at: serverTimestamp(),
-      updated_at: serverTimestamp(),
-    });
-  });
+  await patchCall(callId, "end");
 }
 
 export async function markCallUnavailable(callId: string) {
-  const db = getFirestoreDb();
-  const callRef = doc(db, "calls", callId);
-
-  await runTransaction(db, async (transaction) => {
-    const callSnapshot = await transaction.get(callRef);
-
-    if (!callSnapshot.exists()) {
-      throw new Error("call-not-found");
-    }
-
-    const call = callSnapshot.data() as Omit<CallRecord, "id">;
-
-    if (call.status !== "queue") {
-      throw new Error("call-not-queued");
-    }
-
-    transaction.update(callRef, {
-      status: "unavailable",
-      timed_out_at: serverTimestamp(),
-      updated_at: serverTimestamp(),
-    });
-  });
+  await patchCall(callId, "mark-unavailable");
 }
 
 export async function acceptHumanThread(threadId: string, staffUserId: string) {

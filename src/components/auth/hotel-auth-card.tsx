@@ -21,6 +21,7 @@ export function HotelAuthCard({
 }: HotelAuthCardProps) {
   const [email, setEmail] = useState(defaultEmail);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -65,14 +66,23 @@ export function HotelAuthCard({
 
           <label className="grid gap-1 text-sm">
             <span className="text-stone-600">パスワード</span>
-            <input
-              className="rounded-2xl border border-stone-300 bg-white px-3 py-3 outline-none transition focus:border-teal-600"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              required
-            />
+            <div className="flex items-center gap-2">
+              <input
+                className="min-w-0 flex-1 rounded-2xl border border-stone-300 bg-white px-3 py-3 outline-none transition focus:border-teal-600"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                className="shrink-0 rounded-2xl border border-stone-300 px-3 py-3 text-xs font-medium text-stone-600 transition hover:border-stone-400 hover:text-stone-900"
+                onClick={() => setShowPassword((current) => !current)}
+              >
+                {showPassword ? "非表示" : "表示"}
+              </button>
+            </div>
           </label>
         </div>
 

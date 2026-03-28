@@ -4,8 +4,28 @@ import { getFirestore } from "firebase-admin/firestore";
 
 let adminApp: App | null = null;
 
+type ServiceAccountConfig = {
+  project_id?: string;
+  client_email?: string;
+  private_key?: string;
+};
+
+function readServiceAccountJson(): ServiceAccountConfig | null {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as ServiceAccountConfig;
+  } catch {
+    throw new Error("invalid-service-account-json");
+  }
+}
+
 function readPrivateKey() {
-  const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
+  const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY ?? readServiceAccountJson()?.private_key;
 
   if (!privateKey) {
     throw new Error("missing-admin-private-key");
@@ -15,8 +35,10 @@ function readPrivateKey() {
 }
 
 function createAdminApp() {
-  const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+  const serviceAccount = readServiceAccountJson();
+  const projectId =
+    process.env.FIREBASE_ADMIN_PROJECT_ID ?? serviceAccount?.project_id ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL ?? serviceAccount?.client_email;
 
   if (!projectId) {
     throw new Error("missing-admin-project-id");

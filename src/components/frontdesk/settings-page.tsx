@@ -1,17 +1,46 @@
 "use client";
 
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
+import { FRONTDESK_NOTIFICATION_ENABLED_KEY } from "@/lib/frontdesk/preferences";
 
 export function FrontdeskSettingsPage() {
   const { user, claims, isLoading: authLoading, error: authError, login, logout } = useHotelAuth();
-  const [notificationEnabled, setNotificationEnabled] = useState(true);
+  const [notificationEnabled, setNotificationEnabled] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+
+    return window.localStorage.getItem(FRONTDESK_NOTIFICATION_ENABLED_KEY) !== "false";
+  });
   const [compactMode, setCompactMode] = useState(false);
 
   const role = claims?.role;
   const staffUserId = useDeferredValue(user?.uid ?? "");
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(FRONTDESK_NOTIFICATION_ENABLED_KEY, String(notificationEnabled));
+  }, [notificationEnabled]);
+
+  async function handleToggleNotifications() {
+    const nextValue = !notificationEnabled;
+    setNotificationEnabled(nextValue);
+
+    if (
+      nextValue &&
+      typeof window !== "undefined" &&
+      "Notification" in window &&
+      Notification.permission === "default"
+    ) {
+      await Notification.requestPermission();
+    }
+  }
 
   if (!user) {
     return (
@@ -40,7 +69,7 @@ export function FrontdeskSettingsPage() {
                 <p className="font-medium text-slate-950">通知を有効化</p>
                 <p className="text-sm text-slate-500">着信や有人チャットの通知を受け取ります。</p>
               </div>
-              <input type="checkbox" checked={notificationEnabled} onChange={() => setNotificationEnabled((value) => !value)} />
+              <input type="checkbox" checked={notificationEnabled} onChange={() => void handleToggleNotifications()} />
             </label>
             <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
               <div>

@@ -23,6 +23,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "thread_id", "order": "ASCENDING" },
+        { "fieldPath": "direction", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "updated_at", "order": "DESCENDING" }
       ]
@@ -62,6 +63,16 @@
       "fields": [
         { "fieldPath": "hotel_id", "order": "ASCENDING" },
         { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "thread_id", "order": "ASCENDING" },
+        { "fieldPath": "sender", "order": "ASCENDING" },
+        { "fieldPath": "body", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "ASCENDING" }
       ]
     },
     {
