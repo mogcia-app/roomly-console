@@ -48,7 +48,11 @@ service cloud.firestore {
           "accepted_by",
           "accepted_at",
           "ended_at",
-          "timed_out_at"
+          "timed_out_at",
+          "answer_sdp",
+          "front_ice_candidates",
+          "webrtc_status",
+          "connected_at"
         ]);
     }
 

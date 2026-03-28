@@ -24,7 +24,6 @@
       "fields": [
         { "fieldPath": "hotel_id", "order": "ASCENDING" },
         { "fieldPath": "thread_id", "order": "ASCENDING" },
-        { "fieldPath": "direction", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "updated_at", "order": "DESCENDING" }
       ]
