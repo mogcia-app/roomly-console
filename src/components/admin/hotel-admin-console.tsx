@@ -6,7 +6,7 @@ import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { useHotelAdminStaff } from "@/hooks/useHotelAdminStaff";
 import { buildInquiryHistory, useRecentCalls, useRecentThreads } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
-import { auth } from "@/lib/firebase";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { formatInquiryType, formatIsoDateTime, formatRoomLabel, formatStatusLabel } from "@/lib/frontdesk/format";
 
 type ActionState = {
@@ -15,6 +15,7 @@ type ActionState = {
 } | null;
 
 async function authorizedFetch(input: RequestInfo, init?: RequestInit) {
+  const auth = getFirebaseAuth();
   const currentUser = auth.currentUser;
 
   if (!currentUser) {

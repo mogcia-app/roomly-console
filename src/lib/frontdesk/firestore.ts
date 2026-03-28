@@ -12,7 +12,7 @@ import {
   where,
   type QueryConstraint,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getFirestoreDb } from "@/lib/firebase";
 import type {
   CallRecord,
   ChatThreadRecord,
@@ -25,6 +25,7 @@ export function subscribeQueueCalls(
   onData: (calls: CallRecord[]) => void,
   onError: (error: Error) => void,
 ) {
+  const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
     where("hotel_id", "==", hotelId),
     where("status", "==", "queue"),
@@ -51,6 +52,7 @@ export function subscribeThreadCalls(
   onData: (calls: CallRecord[]) => void,
   onError: (error: Error) => void,
 ) {
+  const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
     where("thread_id", "==", threadId),
     where("status", "in", ["queue", "active"]),
@@ -77,6 +79,7 @@ export function subscribeActiveCalls(
   onData: (calls: CallRecord[]) => void,
   onError: (error: Error) => void,
 ) {
+  const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
     where("hotel_id", "==", hotelId),
     where("status", "==", "active"),
@@ -103,6 +106,7 @@ export function subscribeHumanThreads(
   onData: (threads: ChatThreadRecord[]) => void,
   onError: (error: Error) => void,
 ) {
+  const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
     where("hotel_id", "==", hotelId),
     where("mode", "==", "human"),
@@ -129,6 +133,7 @@ export function subscribeRecentCalls(
   onData: (calls: CallRecord[]) => void,
   onError: (error: Error) => void,
 ) {
+  const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
     where("hotel_id", "==", hotelId),
     orderBy("updated_at", "desc"),
@@ -153,6 +158,7 @@ export function subscribeRecentThreads(
   onData: (threads: ChatThreadRecord[]) => void,
   onError: (error: Error) => void,
 ) {
+  const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
     where("hotel_id", "==", hotelId),
     where("mode", "==", "human"),
@@ -242,6 +248,7 @@ export function subscribeThreadMessages(
   onData: (messages: MessageRecord[]) => void,
   onError: (error: Error) => void,
 ) {
+  const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
     where("thread_id", "==", threadId),
     orderBy("timestamp", "asc"),
@@ -262,6 +269,7 @@ export function subscribeThreadMessages(
 }
 
 export async function acceptCall(callId: string, staffUserId: string) {
+  const db = getFirestoreDb();
   const callRef = doc(db, "calls", callId);
 
   await runTransaction(db, async (transaction) => {
@@ -287,6 +295,7 @@ export async function acceptCall(callId: string, staffUserId: string) {
 }
 
 export async function endCall(callId: string) {
+  const db = getFirestoreDb();
   const callRef = doc(db, "calls", callId);
 
   await runTransaction(db, async (transaction) => {
@@ -311,6 +320,7 @@ export async function endCall(callId: string) {
 }
 
 export async function markCallUnavailable(callId: string) {
+  const db = getFirestoreDb();
   const callRef = doc(db, "calls", callId);
 
   await runTransaction(db, async (transaction) => {
@@ -335,6 +345,7 @@ export async function markCallUnavailable(callId: string) {
 }
 
 export async function acceptHumanThread(threadId: string, staffUserId: string) {
+  const db = getFirestoreDb();
   const threadRef = doc(db, "chat_threads", threadId);
 
   await runTransaction(db, async (transaction) => {
@@ -364,6 +375,7 @@ export async function acceptHumanThread(threadId: string, staffUserId: string) {
 }
 
 export async function assignHumanThread(threadId: string, staffUserId: string) {
+  const db = getFirestoreDb();
   const threadRef = doc(db, "chat_threads", threadId);
 
   await runTransaction(db, async (transaction) => {
@@ -389,6 +401,7 @@ export async function assignHumanThread(threadId: string, staffUserId: string) {
 }
 
 export async function resolveHumanThread(threadId: string, staffUserId: string) {
+  const db = getFirestoreDb();
   const threadRef = doc(db, "chat_threads", threadId);
 
   await runTransaction(db, async (transaction) => {
@@ -418,6 +431,7 @@ export async function sendFrontMessage(
   staffUserId: string,
   body: string,
 ) {
+  const db = getFirestoreDb();
   const trimmedBody = body.trim();
 
   if (!trimmedBody) {
@@ -465,6 +479,7 @@ export async function sendFrontMessage(
 }
 
 export async function markThreadSeenByFront(threadId: string) {
+  const db = getFirestoreDb();
   const threadRef = doc(db, "chat_threads", threadId);
 
   await updateDoc(threadRef, {

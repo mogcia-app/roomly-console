@@ -1,7 +1,7 @@
-import { getApps, initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
+import { getAuth, type Auth } from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -12,8 +12,54 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+let appInstance: FirebaseApp | null = null;
+let authInstance: Auth | null = null;
+let dbInstance: Firestore | null = null;
+let storageInstance: FirebaseStorage | null = null;
 
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
+function assertFirebaseConfig() {
+  const missingKeys = Object.entries(firebaseConfig)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
+
+  if (missingKeys.length > 0) {
+    throw new Error(`Missing Firebase config: ${missingKeys.join(", ")}`);
+  }
+}
+
+export function getFirebaseApp() {
+  if (appInstance) {
+    return appInstance;
+  }
+
+  assertFirebaseConfig();
+  appInstance = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+  return appInstance;
+}
+
+export function getFirebaseAuth() {
+  if (authInstance) {
+    return authInstance;
+  }
+
+  authInstance = getAuth(getFirebaseApp());
+  return authInstance;
+}
+
+export function getFirestoreDb() {
+  if (dbInstance) {
+    return dbInstance;
+  }
+
+  dbInstance = getFirestore(getFirebaseApp());
+  return dbInstance;
+}
+
+export function getFirebaseStorage() {
+  if (storageInstance) {
+    return storageInstance;
+  }
+
+  storageInstance = getStorage(getFirebaseApp());
+  return storageInstance;
+}

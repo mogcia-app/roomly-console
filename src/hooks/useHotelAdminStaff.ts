@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { auth } from "@/lib/firebase";
+import { getFirebaseAuth } from "@/lib/firebase";
 import type { HotelUserRecord } from "@/lib/users/types";
 
 async function getAuthorizationHeader() {
+  const auth = getFirebaseAuth();
   const currentUser = auth.currentUser;
 
   if (!currentUser) {

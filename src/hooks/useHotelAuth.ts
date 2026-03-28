@@ -7,7 +7,7 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { getFirebaseAuth } from "@/lib/firebase";
 
 export type HotelAuthClaims = {
   hotel_id?: string;
@@ -32,6 +32,7 @@ export function useHotelAuth() {
   const [state, setState] = useState<AuthState>(initialState);
 
   useEffect(() => {
+    const auth = getFirebaseAuth();
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setState({
@@ -80,10 +81,12 @@ export function useHotelAuth() {
   }, []);
 
   async function login(email: string, password: string) {
+    const auth = getFirebaseAuth();
     await signInWithEmailAndPassword(auth, email, password);
   }
 
   async function logout() {
+    const auth = getFirebaseAuth();
     await signOut(auth);
   }
 
