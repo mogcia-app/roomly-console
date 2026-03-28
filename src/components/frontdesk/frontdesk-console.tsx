@@ -457,7 +457,13 @@ export function FrontdeskConsole() {
         let stream: MediaStream | null = null;
 
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
         } catch (error) {
           console.error("[frontdesk/webrtc] microphone unavailable, continuing in listen-only mode", error);
         }
@@ -485,18 +491,54 @@ export function FrontdeskConsole() {
             return;
           }
 
+          console.log("[frontdesk/webrtc] local ice candidate", {
+            callId: activeCall.id,
+            candidateType:
+              event.candidate.candidate.match(/ typ ([a-z]+)/)?.[1] ?? "unknown",
+            protocol: event.candidate.protocol,
+          });
           const candidate = event.candidate.toJSON() as WebRtcIceCandidate;
           void addFrontIceCandidate(activeCall.id, candidate);
         };
 
         peerConnection.ontrack = (event) => {
+          console.log("[frontdesk/webrtc] remote track received", {
+            callId: activeCall.id,
+            streams: event.streams.length,
+            trackKind: event.track.kind,
+            trackEnabled: event.track.enabled,
+            trackMuted: event.track.muted,
+            receivers: peerConnection.getReceivers().length,
+            senders: peerConnection.getSenders().length,
+          });
           if (remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = event.streams[0] ?? null;
+            remoteAudioRef.current.volume = 0.35;
             void remoteAudioRef.current.play().catch(() => undefined);
           }
         };
 
+        peerConnection.oniceconnectionstatechange = () => {
+          console.log("[frontdesk/webrtc] ice state changed", {
+            callId: activeCall.id,
+            iceConnectionState: peerConnection.iceConnectionState,
+            iceGatheringState: peerConnection.iceGatheringState,
+            signalingState: peerConnection.signalingState,
+            receivers: peerConnection.getReceivers().length,
+            senders: peerConnection.getSenders().length,
+          });
+        };
+
         peerConnection.onconnectionstatechange = () => {
+          console.log("[frontdesk/webrtc] connection state changed", {
+            callId: activeCall.id,
+            connectionState: peerConnection.connectionState,
+            iceConnectionState: peerConnection.iceConnectionState,
+            iceGatheringState: peerConnection.iceGatheringState,
+            signalingState: peerConnection.signalingState,
+            receivers: peerConnection.getReceivers().length,
+            senders: peerConnection.getSenders().length,
+          });
           if (peerConnection.connectionState === "connected") {
             setAudioCallState("connected");
             void markCallConnected(activeCall.id);
@@ -586,6 +628,10 @@ export function FrontdeskConsole() {
             continue;
           }
 
+          console.log("[frontdesk/webrtc] applying guest ice candidate", {
+            callId: activeCall.id,
+            candidateType: candidate.candidate.match(/ typ ([a-z]+)/)?.[1] ?? "unknown",
+          });
           await activePeerConnection.addIceCandidate(candidate);
           appliedGuestCandidatesRef.current.add(key);
         }
