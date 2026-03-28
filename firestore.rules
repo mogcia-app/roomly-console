@@ -1,0 +1,100 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      return isSignedIn() && request.auth.token.role is string
+        ? request.auth.token.role
+        : "";
+    }
+
+    function hotelId() {
+      return isSignedIn() && request.auth.token.hotel_id is string
+        ? request.auth.token.hotel_id
+        : "";
+    }
+
+    function isFrontRole() {
+      return role() in ["hotel_front", "hotel_admin"];
+    }
+
+    function belongsToHotel(resourceHotelId) {
+      return resourceHotelId is string && resourceHotelId == hotelId();
+    }
+
+    function hasOnlyChangedKeys(allowedKeys) {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowedKeys);
+    }
+
+    match /calls/{callId} {
+      allow read: if isFrontRole() && belongsToHotel(resource.data.hotel_id);
+      allow create, delete: if false;
+      allow update: if isFrontRole()
+        && belongsToHotel(resource.data.hotel_id)
+        && request.resource.data.hotel_id == resource.data.hotel_id
+        && request.resource.data.room_id == resource.data.room_id
+        && request.resource.data.stay_id == resource.data.stay_id
+        && request.resource.data.guest_lang == resource.data.guest_lang
+        && request.resource.data.thread_id == resource.data.thread_id
+        && request.resource.data.direction == resource.data.direction
+        && request.resource.data.initiated_by == resource.data.initiated_by
+        && hasOnlyChangedKeys([
+          "status",
+          "updated_at",
+          "accepted_by",
+          "accepted_at",
+          "ended_at",
+          "timed_out_at"
+        ]);
+    }
+
+    match /chat_threads/{threadId} {
+      allow read: if isFrontRole() && belongsToHotel(resource.data.hotel_id);
+      allow create, delete: if false;
+      allow update: if isFrontRole()
+        && belongsToHotel(resource.data.hotel_id)
+        && request.resource.data.hotel_id == resource.data.hotel_id;
+    }
+
+    match /messages/{messageId} {
+      allow read: if isFrontRole()
+        && exists(/databases/$(database)/documents/chat_threads/$(resource.data.thread_id))
+        && belongsToHotel(
+          get(/databases/$(database)/documents/chat_threads/$(resource.data.thread_id)).data.hotel_id
+        );
+
+      allow create: if isFrontRole()
+        && request.resource.data.sender == "front"
+        && request.resource.data.thread_id is string
+        && exists(/databases/$(database)/documents/chat_threads/$(request.resource.data.thread_id))
+        && belongsToHotel(
+          get(/databases/$(database)/documents/chat_threads/$(request.resource.data.thread_id)).data.hotel_id
+        );
+
+      allow update, delete: if false;
+    }
+
+    match /rooms/{roomId} {
+      allow read: if isFrontRole() && belongsToHotel(resource.data.hotel_id);
+      allow write: if false;
+    }
+
+    match /stays/{stayId} {
+      allow read: if isFrontRole() && belongsToHotel(resource.data.hotel_id);
+      allow write: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if isFrontRole()
+        && (
+          request.auth.uid == uid
+          || (role() == "hotel_admin" && belongsToHotel(resource.data.hotel_id))
+        );
+      allow write: if false;
+    }
+  }
+}
