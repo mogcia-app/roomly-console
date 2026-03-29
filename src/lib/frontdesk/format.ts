@@ -61,16 +61,6 @@ export function formatSenderLabel(sender: MessageSender) {
 
 export function formatInquiryType(eventType?: string, source?: "call" | "chat") {
   switch (eventType) {
-    case "call_requested":
-      return "通話着信";
-    case "call_accepted":
-      return "通話対応中";
-    case "call_missed":
-      return "通話不在";
-    case "call_ended":
-      return "通話終了";
-    case "call_failed":
-      return "通話不在";
     case "chat_ai_started":
       return "AIチャット";
     case "chat_handoff_requested":
@@ -82,20 +72,12 @@ export function formatInquiryType(eventType?: string, source?: "call" | "chat") 
     case "emergency_detected":
       return "緊急通知";
     default:
-      return source === "call" ? "通話" : source === "chat" ? "チャット" : "問い合わせ";
+      return source === "chat" ? "チャット" : "問い合わせ";
   }
 }
 
 export function formatStatusLabel(status?: string) {
   switch (status) {
-    case "queue":
-      return "応答中";
-    case "active":
-      return "通話中";
-    case "ended":
-      return "終了";
-    case "unavailable":
-      return "不在";
     case "in_progress":
       return "対応中";
     case "resolved":

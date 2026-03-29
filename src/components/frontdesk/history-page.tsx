@@ -4,7 +4,7 @@ import { useDeferredValue, useMemo } from "react";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import { formatInquiryType, formatIsoDateTime, formatRoomLabel, formatStatusLabel } from "@/lib/frontdesk/format";
-import { buildInquiryHistory, useRecentCalls, useRecentThreads } from "@/hooks/useFrontdeskData";
+import { buildInquiryHistory, useRecentThreads } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
 
 const defaultHotelId = process.env.NEXT_PUBLIC_DEFAULT_HOTEL_ID ?? "";
@@ -13,12 +13,8 @@ export function FrontdeskHistoryPage() {
   const { user, claims, isLoading: authLoading, error: authError, login, logout } = useHotelAuth();
 
   const hotelId = useDeferredValue((claims?.hotel_id ?? defaultHotelId).trim());
-  const recentCalls = useRecentCalls(hotelId);
   const recentThreads = useRecentThreads(hotelId);
-  const historyItems = useMemo(
-    () => buildInquiryHistory(recentCalls.data, recentThreads.data),
-    [recentCalls.data, recentThreads.data],
-  );
+  const historyItems = useMemo(() => buildInquiryHistory(recentThreads.data), [recentThreads.data]);
 
   if (!user) {
     return (
@@ -34,7 +30,7 @@ export function FrontdeskHistoryPage() {
 
   return (
     <FrontdeskShell
-      pageSubtitle="通話とチャットの履歴を統合して、あとから追えるようにします。"
+      pageSubtitle="有人チャットの履歴をあとから追えるようにします。"
       pageTitle="履歴"
       onLogout={() => logout()}
     >
@@ -42,7 +38,7 @@ export function FrontdeskHistoryPage() {
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-slate-950">問い合わせ履歴</h3>
-            <p className="text-sm text-slate-500">通話失敗やチャット移行も同じ一覧で確認できます。</p>
+            <p className="text-sm text-slate-500">有人チャットの対応履歴を確認できます。</p>
           </div>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
             {historyItems.length}件
@@ -76,7 +72,7 @@ export function FrontdeskHistoryPage() {
                     {formatStatusLabel(item.status)}
                   </span>
                 </div>
-                <div className="truncate text-slate-500">{item.accepted_by ?? item.assigned_to ?? "-"}</div>
+                <div className="truncate text-slate-500">{item.assigned_to ?? "-"}</div>
                 <div className="text-slate-500">
                   {formatIsoDateTime(item.updated_at?.toDate().toISOString())}
                 </div>

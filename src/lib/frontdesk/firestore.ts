@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  arrayUnion,
   collection,
   doc,
   onSnapshot,
@@ -15,96 +14,10 @@ import {
 } from "firebase/firestore";
 import { getFirestoreDb } from "@/lib/firebase";
 import type {
-  CallRecord,
   ChatThreadRecord,
   InquiryHistoryItem,
   MessageRecord,
-  WebRtcIceCandidate,
-  WebRtcSessionDescription,
 } from "@/lib/frontdesk/types";
-
-export function subscribeQueueCalls(
-  hotelId: string,
-  onData: (calls: CallRecord[]) => void,
-  onError: (error: Error) => void,
-) {
-  const db = getFirestoreDb();
-  const constraints: QueryConstraint[] = [
-    where("hotel_id", "==", hotelId),
-    where("status", "==", "queue"),
-    where("direction", "==", "guest_to_front"),
-    orderBy("updated_at", "desc"),
-  ];
-
-  return onSnapshot(
-    query(collection(db, "calls"), ...constraints),
-    (snapshot) => {
-      onData(
-        snapshot.docs.map((docSnapshot) => ({
-          id: docSnapshot.id,
-          ...(docSnapshot.data() as Omit<CallRecord, "id">),
-        })),
-      );
-    },
-    onError,
-  );
-}
-
-export function subscribeThreadCalls(
-  hotelId: string,
-  threadId: string,
-  onData: (calls: CallRecord[]) => void,
-  onError: (error: Error) => void,
-) {
-  const db = getFirestoreDb();
-  const constraints: QueryConstraint[] = [
-    where("hotel_id", "==", hotelId),
-    where("thread_id", "==", threadId),
-    where("status", "in", ["queue", "active", "unavailable"]),
-    orderBy("updated_at", "desc"),
-  ];
-
-  return onSnapshot(
-    query(collection(db, "calls"), ...constraints),
-    (snapshot) => {
-      onData(
-        snapshot.docs.map((docSnapshot) => ({
-          id: docSnapshot.id,
-          ...(docSnapshot.data() as Omit<CallRecord, "id">),
-        })),
-      );
-    },
-    onError,
-  );
-}
-
-export function subscribeActiveCalls(
-  hotelId: string,
-  staffUserId: string,
-  onData: (calls: CallRecord[]) => void,
-  onError: (error: Error) => void,
-) {
-  const db = getFirestoreDb();
-  const constraints: QueryConstraint[] = [
-    where("hotel_id", "==", hotelId),
-    where("status", "==", "active"),
-    where("accepted_by", "==", staffUserId),
-    orderBy("updated_at", "desc"),
-  ];
-
-  return onSnapshot(
-    query(collection(db, "calls"), ...constraints),
-    (snapshot) => {
-      onData(
-        snapshot.docs.map((docSnapshot) => ({
-          id: docSnapshot.id,
-          ...(docSnapshot.data() as Omit<CallRecord, "id">),
-        })),
-      );
-    },
-    onError,
-  );
-}
 
 export function subscribeHumanThreads(
   hotelId: string,
@@ -126,31 +39,6 @@ export function subscribeHumanThreads(
         snapshot.docs.map((docSnapshot) => ({
           id: docSnapshot.id,
           ...(docSnapshot.data() as Omit<ChatThreadRecord, "id">),
-        })),
-      );
-    },
-    onError,
-  );
-}
-
-export function subscribeRecentCalls(
-  hotelId: string,
-  onData: (calls: CallRecord[]) => void,
-  onError: (error: Error) => void,
-) {
-  const db = getFirestoreDb();
-  const constraints: QueryConstraint[] = [
-    where("hotel_id", "==", hotelId),
-    orderBy("updated_at", "desc"),
-  ];
-
-  return onSnapshot(
-    query(collection(db, "calls"), ...constraints),
-    (snapshot) => {
-      onData(
-        snapshot.docs.map((docSnapshot) => ({
-          id: docSnapshot.id,
-          ...(docSnapshot.data() as Omit<CallRecord, "id">),
         })),
       );
     },
@@ -184,38 +72,7 @@ export function subscribeRecentThreads(
   );
 }
 
-export function buildInquiryHistory(
-  calls: CallRecord[],
-  threads: ChatThreadRecord[],
-): InquiryHistoryItem[] {
-  const callItems: InquiryHistoryItem[] = calls.map((call) => ({
-    id: call.id,
-    source: "call",
-    room_id: call.room_id,
-    room_number: call.room_number,
-    stay_id: call.stay_id,
-    hotel_id: call.hotel_id,
-    guest_language: call.guest_lang,
-    event_type:
-      call.event_type ??
-      (call.status === "queue"
-        ? "call_requested"
-        : call.status === "active"
-          ? "call_accepted"
-          : call.status === "ended"
-            ? "call_ended"
-            : call.status === "unavailable"
-              ? "call_failed"
-              : "call_requested"),
-    status: call.status,
-    emergency: Boolean(call.emergency),
-    created_at: call.created_at,
-    updated_at: call.updated_at,
-    started_at: call.accepted_at,
-    ended_at: call.ended_at ?? call.timed_out_at,
-    accepted_by: call.accepted_by,
-  }));
-
+export function buildInquiryHistory(threads: ChatThreadRecord[]): InquiryHistoryItem[] {
   const threadItems: InquiryHistoryItem[] = threads.map((thread) => ({
     id: thread.id,
     source: "chat",
@@ -241,7 +98,7 @@ export function buildInquiryHistory(
     assigned_to: thread.assigned_to,
   }));
 
-  return [...callItems, ...threadItems].sort((left, right) => {
+  return threadItems.sort((left, right) => {
     const leftTime = left.updated_at?.toDate().getTime() ?? 0;
     const rightTime = right.updated_at?.toDate().getTime() ?? 0;
     return rightTime - leftTime;
@@ -287,63 +144,6 @@ async function getAuthorizationHeaders() {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
-}
-
-async function patchCall(callId: string, action: "accept" | "mark-unavailable" | "end") {
-  const response = await fetch(`/api/frontdesk/calls/${callId}`, {
-    method: "PATCH",
-    headers: await getAuthorizationHeaders(),
-    body: JSON.stringify({ action }),
-  });
-  const payload = (await response.json()) as { error?: string };
-
-  if (!response.ok) {
-    throw new Error(payload.error ?? "call-update-failed");
-  }
-}
-
-export async function acceptCall(callId: string) {
-  await patchCall(callId, "accept");
-}
-
-export async function endCall(callId: string) {
-  await patchCall(callId, "end");
-}
-
-export async function markCallUnavailable(callId: string) {
-  await patchCall(callId, "mark-unavailable");
-}
-
-export async function saveCallAnswer(callId: string, answer: WebRtcSessionDescription) {
-  const db = getFirestoreDb();
-  const callRef = doc(db, "calls", callId);
-
-  await updateDoc(callRef, {
-    answer_sdp: answer,
-    webrtc_status: "answering",
-    updated_at: serverTimestamp(),
-  });
-}
-
-export async function addFrontIceCandidate(callId: string, candidate: WebRtcIceCandidate) {
-  const db = getFirestoreDb();
-  const callRef = doc(db, "calls", callId);
-
-  await updateDoc(callRef, {
-    front_ice_candidates: arrayUnion(candidate),
-    updated_at: serverTimestamp(),
-  });
-}
-
-export async function markCallConnected(callId: string) {
-  const db = getFirestoreDb();
-  const callRef = doc(db, "calls", callId);
-
-  await updateDoc(callRef, {
-    webrtc_status: "connected",
-    connected_at: serverTimestamp(),
-    updated_at: serverTimestamp(),
-  });
 }
 
 export async function acceptHumanThread(threadId: string, staffUserId: string) {

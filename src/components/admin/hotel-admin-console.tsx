@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { useHotelAdminStaff } from "@/hooks/useHotelAdminStaff";
-import { buildInquiryHistory, useRecentCalls, useRecentThreads } from "@/hooks/useFrontdeskData";
+import { buildInquiryHistory, useRecentThreads } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { formatInquiryType, formatIsoDateTime, formatRoomLabel, formatStatusLabel } from "@/lib/frontdesk/format";
@@ -46,12 +46,8 @@ export function HotelAdminConsole() {
   const hotelId = claims?.hotel_id ?? "";
   const isAdmin = role === "hotel_admin";
   const staffQuery = useHotelAdminStaff(Boolean(user && isAdmin));
-  const recentCalls = useRecentCalls(hotelId);
   const recentThreads = useRecentThreads(hotelId);
-  const inquiryHistory = useMemo(
-    () => buildInquiryHistory(recentCalls.data, recentThreads.data).slice(0, 30),
-    [recentCalls.data, recentThreads.data],
-  );
+  const inquiryHistory = useMemo(() => buildInquiryHistory(recentThreads.data).slice(0, 30), [recentThreads.data]);
 
   if (!user) {
     return (
@@ -340,15 +336,13 @@ export function HotelAdminConsole() {
             <div>
               <h2 className="text-lg font-semibold">問い合わせ履歴</h2>
               <p className="text-sm text-stone-500">
-                `calls` と `chat_threads(mode=human)` を統合して、部屋番号・種別・状態・緊急で追えるようにしています。
+                `chat_threads(mode=human)` を部屋番号・状態・緊急で追えるようにしています。
               </p>
             </div>
             <div className="text-sm text-stone-500">{inquiryHistory.length}件表示</div>
           </div>
 
-          {(recentCalls.error || recentThreads.error) ? (
-            <p className="mb-4 text-sm text-rose-700">{recentCalls.error ?? recentThreads.error}</p>
-          ) : null}
+          {recentThreads.error ? <p className="mb-4 text-sm text-rose-700">{recentThreads.error}</p> : null}
 
           <div className="space-y-3">
             {inquiryHistory.map((item) => (
@@ -392,11 +386,11 @@ export function HotelAdminConsole() {
                   </div>
                   <div className="flex justify-between gap-2">
                     <dt>終了/完了</dt>
-                    <dd>{formatIsoDateTime(item.ended_at?.toDate().toISOString() ?? item.resolved_at?.toDate().toISOString())}</dd>
+                    <dd>{formatIsoDateTime(item.resolved_at?.toDate().toISOString())}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
                     <dt>担当者</dt>
-                    <dd>{item.accepted_by ?? item.assigned_to ?? "未設定"}</dd>
+                    <dd>{item.assigned_to ?? "未設定"}</dd>
                   </div>
                   <div className="flex justify-between gap-2">
                     <dt>カテゴリ</dt>
@@ -410,7 +404,7 @@ export function HotelAdminConsole() {
               </article>
             ))}
 
-            {!recentCalls.isLoading && !recentThreads.isLoading && inquiryHistory.length === 0 ? (
+            {!recentThreads.isLoading && inquiryHistory.length === 0 ? (
               <p className="rounded-2xl bg-stone-100 px-4 py-5 text-sm text-stone-500">問い合わせ履歴はまだありません。</p>
             ) : null}
           </div>
