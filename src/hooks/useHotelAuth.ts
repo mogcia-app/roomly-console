@@ -66,12 +66,28 @@ export function useHotelAuth() {
         const hotelId = typeof token.claims.hotel_id === "string" ? token.claims.hotel_id : undefined;
 
         if (role && hotelId && (role === "hotel_admin" || role === "hotel_front")) {
-          void fetch("/api/auth/sync-user", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token.token}`,
-            },
-          });
+          const syncUserProfile = async () => {
+            try {
+              const response = await fetch("/api/auth/sync-user", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token.token}`,
+                },
+              });
+
+              if (!response.ok && !isLocalhost) {
+                throw new Error(`sync-user-failed:${response.status}`);
+              }
+            } catch (error) {
+              if (!isLocalhost) {
+                throw error;
+              }
+
+              console.debug("sync-user skipped on localhost", error);
+            }
+          };
+
+          void syncUserProfile();
         }
 
         setState({

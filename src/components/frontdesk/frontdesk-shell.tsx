@@ -5,6 +5,7 @@ import { FrontdeskSidebar } from "@/components/frontdesk/frontdesk-sidebar";
 
 type FrontdeskShellProps = {
   children: ReactNode;
+  fixedHeader?: boolean;
   pageSubtitle: string;
   pageTitle: string;
   onLogout: () => void;
@@ -13,35 +14,66 @@ type FrontdeskShellProps = {
 
 export function FrontdeskShell({
   children,
+  fixedHeader = false,
   pageSubtitle,
   pageTitle,
   onLogout,
   variant = "default",
 }: FrontdeskShellProps) {
+  const isMessenger = variant === "messenger";
+  const useFixedLayout = isMessenger || fixedHeader;
+
   return (
-    <div className="min-h-dvh bg-[#f3f2ef] text-stone-900 lg:grid lg:grid-cols-[76px_minmax(0,1fr)]">
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 backdrop-blur lg:static lg:border-r lg:border-t-0 lg:bg-white">
+    <div
+      className={`min-h-dvh text-stone-900 lg:grid lg:grid-cols-[92px_minmax(0,1fr)] ${
+        useFixedLayout
+          ? isMessenger
+            ? "h-dvh overflow-hidden bg-[#f6ecea]"
+            : "h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.9),_rgba(243,242,239,0.92)_38%,_rgba(233,228,219,0.95)_100%)]"
+          : "bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.9),_rgba(243,242,239,0.92)_38%,_rgba(233,228,219,0.95)_100%)]"
+      }`}
+    >
+      <div
+        className={`fixed inset-x-0 bottom-0 z-30 border-t backdrop-blur lg:static lg:border-r lg:border-t-0 ${
+          variant === "messenger"
+            ? "border-[#ecd2cf] bg-white/96 lg:bg-[#fff7f6]"
+            : "border-stone-200 bg-white/95 lg:bg-white/80 lg:backdrop-blur-xl"
+        }`}
+      >
         <FrontdeskSidebar onLogout={onLogout} />
       </div>
 
-      <main className="min-w-0 pb-22 lg:pb-0">
+      <main className={`min-w-0 pb-24 lg:pb-0 ${useFixedLayout ? "flex h-dvh flex-col overflow-hidden" : ""}`}>
         <header
-          className={`sticky top-0 z-20 border-b border-stone-200 bg-white/95 backdrop-blur ${
-            variant === "messenger" ? "px-4 py-3 sm:px-6" : "px-4 py-4 sm:px-6"
+          className={`sticky top-0 z-20 backdrop-blur-xl ${
+            isMessenger
+              ? "border-b border-[#d9b1ac] bg-[#ad2218] px-4 py-3 text-white sm:px-6 lg:px-8"
+              : "border-b border-stone-200 bg-white/85 px-4 py-4 sm:px-6 lg:px-8"
           }`}
         >
           <div className="flex items-end justify-between gap-4">
             <div>
-              <h2 className={`${variant === "messenger" ? "text-lg" : "text-2xl"} font-semibold tracking-tight text-stone-950`}>
+              <p
+                className={`text-[11px] font-semibold uppercase tracking-[0.24em] ${
+                  isMessenger ? "text-white/72" : "text-[#ad2218]"
+                }`}
+              >
+                {isMessenger ? "Roomly Chat Desk" : "Roomly Front Desk"}
+              </p>
+              <h2
+                className={`${isMessenger ? "mt-1 text-xl lg:text-2xl text-white" : "mt-1 text-2xl text-stone-950"} font-semibold tracking-tight`}
+              >
                 {pageTitle}
               </h2>
-              <p className={`${variant === "messenger" ? "mt-0.5 text-xs" : "mt-1 text-sm"} text-stone-500`}>
+              <p
+                className={`${isMessenger ? "mt-1 text-xs sm:text-sm text-white/80" : "mt-1 text-sm text-stone-500"} max-w-2xl`}
+              >
                 {pageSubtitle}
               </p>
             </div>
           </div>
         </header>
-        <div className="px-0 py-0">{children}</div>
+        <div className={`px-0 py-0 ${useFixedLayout ? "min-h-0 flex-1 overflow-auto" : ""}`}>{children}</div>
       </main>
     </div>
   );

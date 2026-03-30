@@ -36,12 +36,15 @@ export function formatTime(value: FirestoreDate) {
   return timeFormatter.format(value.toDate());
 }
 
-export function formatRoomLabel(roomId: string, roomNumber?: string) {
-  if (roomNumber) {
-    return `${roomNumber}号室`;
+export function formatRoomLabel(roomId: string, roomNumber?: string, displayName?: string | null) {
+  const base = roomNumber || roomId;
+
+  if (!base) {
+    return "部屋未設定";
   }
 
-  return roomId ? `${roomId}号室` : "部屋未設定";
+  const trimmedDisplayName = displayName?.trim();
+  return trimmedDisplayName ? `${base} (${trimmedDisplayName})` : base;
 }
 
 export function formatSenderLabel(sender: MessageSender) {

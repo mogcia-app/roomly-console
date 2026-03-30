@@ -17,7 +17,7 @@ import {
 } from "@/lib/frontdesk/format";
 import { FRONTDESK_NOTIFICATION_ENABLED_KEY } from "@/lib/frontdesk/preferences";
 import type { ChatThreadRecord } from "@/lib/frontdesk/types";
-import { useHumanThreads, useThreadMessages } from "@/hooks/useFrontdeskData";
+import { useHotelRooms, useHumanThreads, useThreadMessages } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
 
 const defaultHotelId = process.env.NEXT_PUBLIC_DEFAULT_HOTEL_ID ?? "";
@@ -32,11 +32,11 @@ type MobilePane = "list" | "chat";
 function statusTone(status: ChatThreadRecord["status"]) {
   switch (status) {
     case "new":
-      return "bg-amber-100 text-amber-900";
+      return "bg-[#fff3cd] text-[#8a5b00]";
     case "in_progress":
-      return "bg-sky-100 text-sky-900";
+      return "bg-[#fff1ef] text-[#ad2218]";
     case "resolved":
-      return "bg-emerald-100 text-emerald-900";
+      return "bg-[#f3e6e4] text-[#7d5a56]";
     default:
       return "bg-stone-100 text-stone-700";
   }
@@ -71,6 +71,15 @@ function sortByPriority<T extends { emergency?: boolean; status?: string; update
   });
 }
 
+function resolveRoomLabel(
+  roomId: string,
+  roomNumber: string | undefined,
+  roomDisplayName: string | null | undefined,
+  roomDisplayNames: Map<string, string | null>,
+) {
+  return formatRoomLabel(roomId, roomNumber, roomDisplayName ?? roomDisplayNames.get(roomId));
+}
+
 function ThreadListCard({
   thread,
   isSelected,
@@ -82,31 +91,35 @@ function ThreadListCard({
   selectedByOther: boolean;
   onClick: () => void;
 }) {
-  const roomLabel = formatRoomLabel(thread.room_id, thread.room_number);
+  const roomLabel = formatRoomLabel(thread.room_id, thread.room_number, thread.room_display_name);
 
   return (
     <button
       type="button"
-      className={`w-full rounded-[24px] border px-4 py-3 text-left transition ${
+      className={`w-full rounded-[8px] border px-4 py-3.5 text-left transition ${
         isSelected
-          ? "border-[#e8b7b1] bg-[#fff6f4] text-stone-950 shadow-sm"
-          : "border-stone-200 bg-white text-stone-900 hover:border-stone-300"
+          ? "border-[#e1b8b3] bg-[#fff4f2] shadow-[0_10px_24px_rgba(173,34,24,0.10)]"
+          : "border-[#ead8d5] bg-white hover:border-[#ddb5af] hover:bg-[#fffafa]"
       }`}
       onClick={onClick}
     >
       <div className="flex items-start gap-3">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-stone-100 text-lg font-semibold text-stone-700">
+        <div
+          className={`grid h-12 w-12 shrink-0 place-items-center rounded-full text-base font-semibold ${
+            isSelected ? "bg-[#ad2218] text-white" : "bg-[#fff1ef] text-[#7d2a22]"
+          }`}
+        >
           {(thread.room_number ?? thread.room_id).slice(0, 1)}
         </div>
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="truncate text-[15px] font-semibold">{roomLabel}</h3>
-            <span className="shrink-0 text-xs text-stone-400">{formatTime(thread.updated_at)}</span>
+            <h3 className="truncate text-[15px] font-semibold text-stone-950">{roomLabel}</h3>
+            <span className="shrink-0 text-[11px] text-stone-400">{formatTime(thread.updated_at)}</span>
           </div>
-          <p className="line-clamp-1 text-sm text-stone-500">
+          <p className="mt-1 line-clamp-1 text-sm text-stone-500">
             {thread.last_message_body ?? thread.category ?? formatInquiryType(thread.event_type, "chat")}
           </p>
-          <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+          <div className="mt-3 flex items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2 text-stone-400">
               <span>{thread.guest_language ?? "言語未設定"}</span>
               {selectedByOther ? <span>他スタッフ対応中</span> : null}
@@ -116,7 +129,7 @@ function ThreadListCard({
                 {Math.min(thread.unread_count_front ?? 0, 99)}
               </span>
             ) : thread.emergency ? (
-              <span className="rounded-full bg-[#fff1ef] px-2 py-1 text-[11px] font-semibold text-[#ad2218]">緊急</span>
+              <span className="rounded-full bg-[#fff3f1] px-2 py-1 text-[11px] font-semibold text-[#d14b3d]">緊急</span>
             ) : null}
           </div>
         </div>
@@ -140,8 +153,21 @@ export function FrontdeskConsole() {
   const hotelId = useDeferredValue((claims?.hotel_id ?? defaultHotelId).trim());
   const staffUserId = useDeferredValue(user?.uid ?? "");
   const humanThreads = useHumanThreads(hotelId);
+  const hotelRooms = useHotelRooms(hotelId);
 
   const prioritizedThreads = useMemo(() => sortByPriority(humanThreads.data), [humanThreads.data]);
+  const threadSummary = useMemo(
+    () => ({
+      total: prioritizedThreads.length,
+      newCount: prioritizedThreads.filter((thread) => thread.status === "new").length,
+      emergencyCount: prioritizedThreads.filter((thread) => thread.emergency).length,
+    }),
+    [prioritizedThreads],
+  );
+  const roomDisplayNames = useMemo(
+    () => new Map(hotelRooms.data.map((room) => [room.room_id || room.id, room.display_name ?? null])),
+    [hotelRooms.data],
+  );
   const filteredThreads = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
@@ -150,12 +176,17 @@ export function FrontdeskConsole() {
     }
 
     return prioritizedThreads.filter((thread) => {
-      const room = formatRoomLabel(thread.room_id, thread.room_number).toLowerCase();
+      const room = resolveRoomLabel(
+        thread.room_id,
+        thread.room_number,
+        thread.room_display_name,
+        roomDisplayNames,
+      ).toLowerCase();
       const category = (thread.category ?? "").toLowerCase();
       const lang = (thread.guest_language ?? "").toLowerCase();
       return room.includes(query) || category.includes(query) || lang.includes(query);
     });
-  }, [prioritizedThreads, searchQuery]);
+  }, [prioritizedThreads, roomDisplayNames, searchQuery]);
 
   const selectedThread = useMemo(
     () => filteredThreads.find((thread) => thread.id === selectedThreadId) ?? filteredThreads[0] ?? null,
@@ -168,6 +199,13 @@ export function FrontdeskConsole() {
     [selectedThread, threadMessages.data],
   );
   const hasConnectionContext = Boolean(hotelId && staffUserId && canOperate);
+  const selectedThreadStatusLabel = selectedThread
+    ? selectedThread.status === "new"
+      ? "新着"
+      : selectedThread.status === "in_progress"
+        ? "対応中"
+        : "完了"
+    : null;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -189,10 +227,10 @@ export function FrontdeskConsole() {
 
       notifiedThreadIdsRef.add(thread.id);
       new Notification("新しいフロント対応チャット", {
-        body: `${formatRoomLabel(thread.room_id, thread.room_number)} / ${thread.last_message_body ?? thread.category ?? "新着メッセージ"}`,
+        body: `${resolveRoomLabel(thread.room_id, thread.room_number, thread.room_display_name, roomDisplayNames)} / ${thread.last_message_body ?? thread.category ?? "新着メッセージ"}`,
       });
     }
-  }, [notifiedThreadIdsRef, prioritizedThreads]);
+  }, [notifiedThreadIdsRef, prioritizedThreads, roomDisplayNames]);
 
   useEffect(() => {
     if (!selectedThread || !hasConnectionContext) {
@@ -210,10 +248,10 @@ export function FrontdeskConsole() {
     return (
       <HotelAuthCard
         authError={authError}
-        description="Firebase Auth のメールログインで接続します。`role=hotel_front` または `hotel_admin` の custom claim が必要です。"
+        description="登録済みのメールアドレスとパスワードでログインしてください"
         isLoading={authLoading}
         onSubmit={login}
-        title="hotel_front ログイン"
+        title="管理画面ログイン"
       />
     );
   }
@@ -245,22 +283,22 @@ export function FrontdeskConsole() {
 
   return (
     <FrontdeskShell
-      pageSubtitle="有人チャットをひとつの画面で処理します。"
-      pageTitle="受信"
+      pageSubtitle="問い合わせ確認と返信をまとめて行えます"
+      pageTitle="チャット"
       onLogout={() => logout()}
       variant="messenger"
     >
       {!canOperate ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
-          このアカウントには `hotel_front` または `hotel_admin` の custom claim が必要です。現在の role: {role ?? "未設定"}
+        <div className="mx-3 mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm sm:mx-6 lg:mx-6">
+          このアカウントには `hotel_front` または `hotel_admin` の custom claim が必要です 現在の role: {role ?? "未設定"}
         </div>
       ) : null}
 
       {actionState ? (
         <div
-          className={`mx-4 mt-4 rounded-2xl border px-4 py-3 text-sm shadow-sm sm:mx-6 ${
+          className={`mx-3 mt-3 rounded-2xl border px-4 py-3 text-sm shadow-sm sm:mx-6 lg:mx-6 ${
             actionState.kind === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              ? "border-[#e7c0bb] bg-[#fff1ef] text-[#ad2218]"
               : "border-rose-200 bg-rose-50 text-rose-900"
           }`}
         >
@@ -268,197 +306,259 @@ export function FrontdeskConsole() {
         </div>
       ) : null}
 
-      <div className="grid min-h-[calc(100dvh-129px)] gap-0 lg:min-h-[calc(100vh-77px)] lg:grid-cols-[360px_minmax(0,1fr)]">
-        <aside
-          id="priority"
-          className={`${mobilePane === "chat" ? "hidden" : "block"} bg-[#f7f6f3] lg:block lg:border-r lg:border-stone-200`}
-        >
-          <div className="border-b border-stone-200 bg-white px-4 py-4 sm:px-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-semibold text-stone-950 sm:text-2xl">トーク</h2>
-                <p className="text-sm text-stone-500">有人チャットをまとめて確認</p>
+      <div className="px-3 pb-3 pt-5 sm:px-6 lg:hidden">
+        <div className="flex rounded-[8px] bg-white p-1 shadow-[0_10px_24px_rgba(72,32,28,0.08)]">
+          <button
+            type="button"
+            className={`flex-1 rounded-[6px] px-4 py-3 text-sm font-semibold transition ${
+              mobilePane === "list" ? "bg-[#ad2218] text-white" : "text-stone-500"
+            }`}
+            onClick={() => setMobilePane("list")}
+          >
+            一覧
+          </button>
+          <button
+            type="button"
+            className={`flex-1 rounded-[6px] px-4 py-3 text-sm font-semibold transition ${
+              mobilePane === "chat" ? "bg-[#ad2218] text-white" : "text-stone-500"
+            }`}
+            onClick={() => setMobilePane("chat")}
+            disabled={!selectedThread}
+          >
+            会話
+          </button>
+        </div>
+      </div>
+
+      <div className="grid min-h-[calc(100dvh-182px)] gap-3 px-3 pb-3 pt-2 sm:px-6 sm:pt-3 lg:min-h-[calc(100vh-88px)] lg:grid-cols-[360px_minmax(0,1fr)] lg:gap-4 lg:px-6 lg:pt-5 xl:grid-cols-[390px_minmax(0,1fr)]">
+        <aside id="priority" className={`${mobilePane === "chat" ? "hidden" : "block"} lg:block`}>
+          <div className="overflow-hidden rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] shadow-[0_12px_30px_rgba(72,32,28,0.06)]">
+            <div className="border-b border-[#ecd2cf] bg-white px-4 py-4 sm:px-5 lg:px-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-stone-950 sm:text-xl">トーク一覧</h2>
+                  <p className="text-sm text-stone-500">
+                    新着 {threadSummary.newCount} 件 / 緊急 {threadSummary.emergencyCount} 件
+                  </p>
+                </div>
+                <span className="rounded-full bg-[#fff1ef] px-3 py-1 text-xs font-semibold text-[#ad2218]">
+                  {filteredThreads.length}
+                </span>
               </div>
-              <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-600">
-                {prioritizedThreads.length}
-              </span>
-            </div>
-            <div className="mt-4 rounded-[28px] border border-stone-200 bg-[#f7f6f3] px-4 py-3">
-              <div className="flex items-center gap-3">
+              <div className="mt-4 flex items-center gap-2 rounded-full bg-[#fff3f1] px-4 py-3">
                 <span className="text-stone-400">🔎</span>
                 <input
-                  className="w-full bg-transparent text-base outline-none placeholder:text-stone-400"
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-stone-400"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="検索"
+                  placeholder="部屋番号や内容で検索"
                 />
               </div>
             </div>
-          </div>
 
-          <div className="space-y-3 overflow-y-auto p-4 lg:max-h-[calc(100vh-217px)]">
-            {humanThreads.isLoading ? <p className="text-sm text-stone-500">一覧を読み込み中です。</p> : null}
-            {humanThreads.error ? <p className="text-sm text-rose-700">{humanThreads.error}</p> : null}
+            <div className="space-y-3 overflow-y-auto p-3 lg:max-h-[calc(100vh-180px)] lg:p-4">
+              {humanThreads.isLoading ? <p className="text-sm text-stone-500">一覧を読み込み中です</p> : null}
+              {humanThreads.error ? <p className="text-sm text-rose-700">{humanThreads.error}</p> : null}
 
-            {filteredThreads.map((thread) => (
-              <ThreadListCard
-                key={thread.id}
-                thread={thread}
-                isSelected={selectedThread?.id === thread.id}
-                selectedByOther={
-                  thread.status === "in_progress" && Boolean(thread.assigned_to && thread.assigned_to !== staffUserId)
-                }
-                onClick={() => handleSelectThread(thread.id)}
-              />
-            ))}
+              {filteredThreads.map((thread) => (
+                <ThreadListCard
+                  key={thread.id}
+                  thread={thread}
+                  isSelected={selectedThread?.id === thread.id}
+                  selectedByOther={
+                    thread.status === "in_progress" && Boolean(thread.assigned_to && thread.assigned_to !== staffUserId)
+                  }
+                  onClick={() => handleSelectThread(thread.id)}
+                />
+              ))}
 
-            {!humanThreads.isLoading && filteredThreads.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-stone-200 bg-white px-4 py-5 text-sm text-stone-500">
-                対応待ちのチャットはありません。
-              </p>
-            ) : null}
+              {!humanThreads.isLoading && filteredThreads.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-[#ecd2cf] bg-white px-4 py-5 text-sm text-stone-500">
+                  対応待ちのチャットはありません
+                </p>
+              ) : null}
+            </div>
           </div>
         </aside>
 
-        <section id="detail" className={`${mobilePane === "list" ? "hidden" : "block"} bg-[#ece8e1] lg:block`}>
-          <div className="border-b border-stone-200 bg-white px-4 py-4 sm:px-6">
-            <div className="flex flex-col gap-4">
-              <div className="min-w-0">
-                <button
-                  type="button"
-                  className="mb-3 rounded-full border border-stone-200 px-3 py-1.5 text-sm text-stone-600 lg:hidden"
-                  onClick={() => setMobilePane("list")}
-                >
-                  一覧へ戻る
-                </button>
-                <div className="flex items-center gap-3">
-                  {selectedThread ? (
-                    <div className="grid h-12 w-12 place-items-center rounded-full bg-stone-100 text-lg font-semibold text-stone-700">
-                      {(selectedThread.room_number ?? selectedThread.room_id).slice(0, 1)}
+        <section id="detail" className={`${mobilePane === "list" ? "hidden" : "block"} lg:block`}>
+          <div className="flex h-full flex-col overflow-hidden rounded-[8px] border border-[#ecd2cf] bg-white shadow-[0_12px_30px_rgba(72,32,28,0.06)]">
+            <div className="border-b border-[#ecd2cf] bg-white px-4 py-4 sm:px-6 lg:px-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 lg:flex-1">
+                  <button
+                    type="button"
+                    className="mb-3 rounded-full border border-stone-200 px-3 py-1.5 text-sm text-stone-600 lg:hidden"
+                    onClick={() => setMobilePane("list")}
+                  >
+                    一覧へ戻る
+                  </button>
+                  <div className="flex items-center gap-3">
+                    {selectedThread ? (
+                      <div className="grid h-12 w-12 place-items-center rounded-full bg-[#ad2218] text-lg font-semibold text-white">
+                        {(selectedThread.room_number ?? selectedThread.room_id).slice(0, 1)}
+                      </div>
+                    ) : null}
+                    <div className="min-w-0">
+                      <h2 className="truncate text-lg font-semibold text-stone-950">
+                        {selectedThread
+                          ? resolveRoomLabel(
+                              selectedThread.room_id,
+                              selectedThread.room_number,
+                              selectedThread.room_display_name,
+                              roomDisplayNames,
+                            )
+                          : "スレッド未選択"}
+                      </h2>
+                      <p className="mt-1 truncate text-xs text-stone-500">
+                        {selectedThread
+                          ? `${selectedThread.guest_language ?? "言語未設定"}  ${selectedThread.assigned_to ?? "担当未設定"}`
+                          : "左の一覧から問い合わせを選択してください"}
+                      </p>
                     </div>
-                  ) : null}
-                  <div className="min-w-0">
-                    <h2 className="truncate text-xl font-semibold text-stone-950">
-                      {selectedThread ? formatRoomLabel(selectedThread.room_id, selectedThread.room_number) : "スレッド未選択"}
-                    </h2>
-                    <p className="truncate text-xs text-stone-500">
-                      {selectedThread
-                        ? `担当 ${selectedThread.assigned_to ?? "未着手"} / ${selectedThread.guest_language ?? "言語未設定"}`
-                        : "左の一覧から問い合わせを選択してください。"}
-                    </p>
                   </div>
                 </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {selectedThread ? (
-                  <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusTone(selectedThread.status)}`}>
-                    {selectedThread.status === "new"
-                      ? "新着"
-                      : selectedThread.status === "in_progress"
-                        ? "対応中"
-                        : "完了"}
-                  </span>
-                ) : null}
-                {selectedThread?.emergency ? (
-                  <span className="rounded-full border border-[#e8b7b1] bg-[#fff1ef] px-3 py-1.5 text-xs font-semibold text-[#ad2218]">
-                    緊急
-                  </span>
-                ) : null}
-                <button
-                  type="button"
-                  className="rounded-full border border-[#e8b7b1] bg-[#fff6f4] px-3 py-1.5 text-xs font-semibold text-[#ad2218] transition hover:bg-[#fff1ef] disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400"
-                  disabled={!selectedThread || !hasConnectionContext || isPending}
-                  onClick={() =>
-                    selectedThread &&
-                    void runAction(
-                      () => acceptHumanThread(selectedThread.id, staffUserId),
-                      `${formatRoomLabel(selectedThread.room_id, selectedThread.room_number)} のチャット着手を記録しました。`,
-                    )
-                  }
-                >
-                  対応中
-                </button>
-                <button
-                  type="button"
-                  className="rounded-full border border-stone-200 px-3 py-1.5 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!selectedThread || !hasConnectionContext || isPending}
-                  onClick={() =>
-                    selectedThread &&
-                    void runAction(
-                      () => resolveHumanThread(selectedThread.id, staffUserId),
-                      `${formatRoomLabel(selectedThread.room_id, selectedThread.room_number)} のチャットを完了にしました。`,
-                    )
-                  }
-                >
-                  完了
-                </button>
+
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  {selectedThreadStatusLabel ? (
+                    <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusTone(selectedThread.status)}`}>
+                      {selectedThreadStatusLabel}
+                    </span>
+                  ) : null}
+                  {selectedThread?.emergency ? (
+                    <span className="rounded-full bg-[#fff3f1] px-3 py-1.5 text-xs font-semibold text-[#d14b3d]">
+                      緊急
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="rounded-full bg-[#fff1ef] px-3 py-1.5 text-xs font-semibold text-[#ad2218] transition hover:bg-[#ffe7e3] disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
+                    disabled={!selectedThread || !hasConnectionContext || isPending}
+                    onClick={() =>
+                      selectedThread &&
+                      void runAction(
+                        () => acceptHumanThread(selectedThread.id, staffUserId),
+                        `${resolveRoomLabel(
+                          selectedThread.room_id,
+                          selectedThread.room_number,
+                          selectedThread.room_display_name,
+                          roomDisplayNames,
+                        )} のチャット着手を記録しました`,
+                      )
+                    }
+                  >
+                    対応中
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!selectedThread || !hasConnectionContext || isPending}
+                    onClick={() =>
+                      selectedThread &&
+                      void runAction(
+                        () => resolveHumanThread(selectedThread.id, staffUserId),
+                        `${resolveRoomLabel(
+                          selectedThread.room_id,
+                          selectedThread.room_number,
+                          selectedThread.room_display_name,
+                          roomDisplayNames,
+                        )} のチャットを完了にしました`,
+                      )
+                    }
+                  >
+                    完了
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="flex min-h-[calc(100dvh-213px)] flex-col lg:min-h-[calc(100vh-161px)]">
-            <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-5 sm:py-5">
-              {selectedThreadId && threadMessages.isLoading ? (
-                <p className="text-sm text-stone-500">メッセージを読み込み中です。</p>
-              ) : null}
-              {threadMessages.error ? <p className="text-sm text-rose-500">{threadMessages.error}</p> : null}
-              {!selectedThread ? (
-                <div className="rounded-[24px] border border-dashed border-stone-300 bg-white/80 px-4 py-8 text-center text-sm text-stone-500">
-                  左のトーク一覧から問い合わせを選択すると会話が表示されます。
-                </div>
-              ) : null}
-              {selectedThread && selectedThreadMessages.length === 0 && !threadMessages.isLoading ? (
-                <div className="rounded-[24px] border border-dashed border-stone-300 bg-white/80 px-4 py-8 text-center text-sm text-stone-500">
-                  まだメッセージがありません。
-                </div>
-              ) : null}
-              {selectedThreadMessages.map((message) => {
-                const isFront = message.sender === "front";
-                return (
-                  <article key={message.id} className={`flex ${isFront ? "justify-end" : "justify-start"}`}>
-                    <div className={`flex max-w-[90%] items-end gap-2 sm:max-w-[82%] ${isFront ? "flex-row-reverse" : ""}`}>
-                      <div
-                        className={`rounded-[22px] px-4 py-3 shadow-sm ${
-                          isFront ? "bg-[#ad2218] text-white" : "border border-stone-200 bg-white text-stone-900"
-                        }`}
-                      >
-                        <div className="mb-1 flex items-center justify-between gap-4 text-[11px]">
-                          <span className={isFront ? "text-white/80" : "text-stone-400"}>
-                            {formatSenderLabel(message.sender)}
-                          </span>
+            <div className="border-b border-[#ecd2cf] bg-[#fff8f7] px-4 py-3 lg:px-6">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500">
+                <span className="rounded-full bg-white px-3 py-1.5 font-semibold text-stone-700">
+                  {selectedThread ? formatInquiryType(selectedThread.event_type, "chat") : "待機中"}
+                </span>
+                {selectedThread?.category ? (
+                  <span className="rounded-full bg-white px-3 py-1.5">{selectedThread.category}</span>
+                ) : null}
+                {selectedThread?.guest_language ? (
+                  <span className="rounded-full bg-white px-3 py-1.5">{selectedThread.guest_language}</span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex min-h-[calc(100dvh-318px)] flex-col lg:min-h-[calc(100vh-210px)]">
+              <div className="flex-1 space-y-4 overflow-y-auto bg-white px-4 py-5 sm:px-5 lg:px-6 lg:py-6">
+                {selectedThreadId && threadMessages.isLoading ? (
+                  <p className="text-sm text-stone-500">メッセージを読み込み中です</p>
+                ) : null}
+                {threadMessages.error ? <p className="text-sm text-rose-500">{threadMessages.error}</p> : null}
+                {!selectedThread ? (
+                  <div className="rounded-[8px] border border-dashed border-[#e6c8c4] bg-white/80 px-4 py-8 text-center text-sm text-stone-500">
+                    左のトーク一覧から問い合わせを選択すると会話が表示されます
+                  </div>
+                ) : null}
+                {selectedThread && selectedThreadMessages.length === 0 && !threadMessages.isLoading ? (
+                  <div className="rounded-[8px] border border-dashed border-[#e6c8c4] bg-white/80 px-4 py-8 text-center text-sm text-stone-500">
+                    まだメッセージがありません
+                  </div>
+                ) : null}
+
+                {selectedThreadMessages.map((message) => {
+                  const isFront = message.sender === "front";
+
+                  return (
+                    <article key={message.id} className={`flex ${isFront ? "justify-end" : "justify-start"}`}>
+                      <div className="max-w-[94%] sm:max-w-[82%] xl:max-w-[68%]">
+                        <div
+                          className={`rounded-[8px] px-4 py-3 shadow-sm ${
+                            isFront
+                            ? "bg-[#f4c7c2] text-stone-900"
+                            : "border border-[#ecd2cf] bg-white text-stone-900"
+                          }`}
+                        >
+                          <div className="mb-1 text-[11px] text-stone-500">{formatSenderLabel(message.sender)}</div>
+                          <p className="whitespace-pre-wrap text-[15px] leading-6">{message.body}</p>
                         </div>
-                        <p className="whitespace-pre-wrap text-[15px] leading-7">{message.body}</p>
+                        <div className={`mt-1 px-1 text-[11px] text-stone-400 ${isFront ? "text-right" : "text-left"}`}>
+                          {formatTime(message.timestamp)}
+                        </div>
                       </div>
-                      <span className="shrink-0 text-[11px] text-stone-400">{formatTime(message.timestamp)}</span>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+                    </article>
+                  );
+                })}
+              </div>
 
-            <div className="border-t border-stone-200 bg-white px-4 py-4 sm:px-6">
-              <div className="flex items-end gap-3">
-                <textarea
-                  className="min-h-14 flex-1 rounded-[24px] border border-stone-200 bg-[#f7f6f3] px-4 py-4 text-base text-stone-900 outline-none transition focus:border-stone-400"
-                  value={draftMessage}
-                  onChange={(event) => setDraftMessage(event.target.value)}
-                  placeholder="メッセージを入力..."
-                  disabled={!selectedThread}
-                />
-                <button
-                  type="button"
-                  className="grid h-14 w-14 shrink-0 place-items-center rounded-[20px] bg-[#ad2218] text-sm font-semibold text-white transition hover:bg-[#951d15] disabled:cursor-not-allowed disabled:bg-stone-300"
-                  disabled={!selectedThread || !hasConnectionContext || isPending || !draftMessage.trim()}
-                  onClick={() =>
-                    selectedThread &&
-                    void runAction(async () => {
-                      await sendFrontMessage(selectedThread.id, staffUserId, draftMessage);
-                      setDraftMessage("");
-                    }, `${formatRoomLabel(selectedThread.room_id, selectedThread.room_number)} に返信しました。`)
-                  }
-                >
-                  送信
-                </button>
+              <div className="border-t border-[#ecd2cf] bg-white px-4 py-3 sm:px-6 lg:px-6">
+                <div className="flex items-end gap-3">
+                  <textarea
+                    rows={1}
+                    className="h-12 flex-1 resize-none rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-4 py-3 text-base leading-6 text-stone-900 outline-none transition focus:border-[#ad2218]"
+                    value={draftMessage}
+                    onChange={(event) => setDraftMessage(event.target.value)}
+                    placeholder="メッセージを入力"
+                    disabled={!selectedThread}
+                  />
+                  <button
+                    type="button"
+                    className="grid h-12 min-w-12 shrink-0 place-items-center rounded-[8px] bg-[#ad2218] px-4 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(173,34,24,0.22)] transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:shadow-none sm:min-w-24"
+                    disabled={!selectedThread || !hasConnectionContext || isPending || !draftMessage.trim()}
+                    onClick={() =>
+                      selectedThread &&
+                      void runAction(async () => {
+                        await sendFrontMessage(selectedThread.id, staffUserId, draftMessage);
+                        setDraftMessage("");
+                      }, `${resolveRoomLabel(
+                        selectedThread.room_id,
+                        selectedThread.room_number,
+                        selectedThread.room_display_name,
+                        roomDisplayNames,
+                      )} に返信しました`)
+                    }
+                  >
+                    <span className="hidden sm:inline">送信</span>
+                    <span className="sm:hidden">送信</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

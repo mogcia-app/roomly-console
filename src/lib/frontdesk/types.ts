@@ -11,6 +11,7 @@ export type ChatThreadRecord = {
   stay_id: string;
   room_id: string;
   room_number?: string;
+  room_display_name?: string | null;
   hotel_id?: string;
   mode: ThreadMode;
   status?: ThreadStatus;
@@ -55,6 +56,7 @@ export type InquiryHistoryItem = {
   source: "chat";
   room_id: string;
   room_number?: string;
+  room_display_name?: string | null;
   stay_id: string;
   hotel_id?: string;
   guest_language?: string;
@@ -67,4 +69,15 @@ export type InquiryHistoryItem = {
   started_at?: FirestoreDate;
   resolved_at?: FirestoreDate;
   assigned_to?: string;
+};
+
+export type RoomRecord = {
+  id: string;
+  room_id: string;
+  hotel_id: string;
+  room_number: string;
+  display_name?: string | null;
+  floor?: string | null;
+  room_type?: string | null;
+  updated_at?: FirestoreDate;
 };

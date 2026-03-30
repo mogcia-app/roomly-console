@@ -17,6 +17,7 @@ import type {
   ChatThreadRecord,
   InquiryHistoryItem,
   MessageRecord,
+  RoomRecord,
 } from "@/lib/frontdesk/types";
 
 export function subscribeHumanThreads(
@@ -78,6 +79,7 @@ export function buildInquiryHistory(threads: ChatThreadRecord[]): InquiryHistory
     source: "chat",
     room_id: thread.room_id,
     room_number: thread.room_number,
+    room_display_name: thread.room_display_name,
     stay_id: thread.stay_id,
     hotel_id: thread.hotel_id,
     guest_language: thread.guest_language,
@@ -103,6 +105,31 @@ export function buildInquiryHistory(threads: ChatThreadRecord[]): InquiryHistory
     const rightTime = right.updated_at?.toDate().getTime() ?? 0;
     return rightTime - leftTime;
   });
+}
+
+export function subscribeHotelRooms(
+  hotelId: string,
+  onData: (rooms: RoomRecord[]) => void,
+  onError: (error: Error) => void,
+) {
+  const db = getFirestoreDb();
+  const constraints: QueryConstraint[] = [
+    where("hotel_id", "==", hotelId),
+    orderBy("room_number", "asc"),
+  ];
+
+  return onSnapshot(
+    query(collection(db, "rooms"), ...constraints),
+    (snapshot) => {
+      onData(
+        snapshot.docs.map((docSnapshot) => ({
+          id: docSnapshot.id,
+          ...(docSnapshot.data() as Omit<RoomRecord, "id">),
+        })),
+      );
+    },
+    onError,
+  );
 }
 
 export function subscribeThreadMessages(

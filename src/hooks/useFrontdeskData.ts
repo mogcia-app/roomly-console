@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import {
   buildInquiryHistory,
+  subscribeHotelRooms,
   subscribeRecentThreads,
   subscribeHumanThreads,
   subscribeThreadMessages,
@@ -45,6 +46,19 @@ export function useRecentThreads(hotelId: string) {
         onData: Parameters<typeof subscribeRecentThreads>[1],
         onError: Parameters<typeof subscribeRecentThreads>[2],
       ) => subscribeRecentThreads(hotelId, onData, onError),
+    [hotelId],
+  );
+
+  return useRealtimeCollection({
+    enabled: Boolean(hotelId),
+    subscribe,
+  });
+}
+
+export function useHotelRooms(hotelId: string) {
+  const subscribe = useMemo(
+    () => (onData: Parameters<typeof subscribeHotelRooms>[1], onError: Parameters<typeof subscribeHotelRooms>[2]) =>
+      subscribeHotelRooms(hotelId, onData, onError),
     [hotelId],
   );
 

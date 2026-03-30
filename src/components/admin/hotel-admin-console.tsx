@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
+import { AdminShell } from "@/components/admin/admin-shell";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { useHotelAdminStaff } from "@/hooks/useHotelAdminStaff";
-import { buildInquiryHistory, useRecentThreads } from "@/hooks/useFrontdeskData";
+import { buildInquiryHistory, useHotelRooms, useRecentThreads } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { formatInquiryType, formatIsoDateTime, formatRoomLabel, formatStatusLabel } from "@/lib/frontdesk/format";
@@ -47,13 +48,18 @@ export function HotelAdminConsole() {
   const isAdmin = role === "hotel_admin";
   const staffQuery = useHotelAdminStaff(Boolean(user && isAdmin));
   const recentThreads = useRecentThreads(hotelId);
+  const hotelRooms = useHotelRooms(hotelId);
   const inquiryHistory = useMemo(() => buildInquiryHistory(recentThreads.data).slice(0, 30), [recentThreads.data]);
+  const roomDisplayNames = useMemo(
+    () => new Map(hotelRooms.data.map((room) => [room.room_id || room.id, room.display_name ?? null])),
+    [hotelRooms.data],
+  );
 
   if (!user) {
     return (
       <HotelAuthCard
         authError={authError}
-        description="Firebase Auth のメールログインで接続します。`role=hotel_admin` の custom claim が必要です。"
+        description="登録済みのメールアドレスとパスワードでログインしてください"
         isLoading={authLoading}
         onSubmit={login}
         title="hotel_admin ログイン"
@@ -126,7 +132,7 @@ export function HotelAdminConsole() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(21,94,117,0.18),_transparent_28%),linear-gradient(180deg,_#f8f4ec_0%,_#ece5d8_100%)] text-stone-900">
+    <AdminShell>
       <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <header className="grid gap-4 rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-[0_20px_60px_rgba(43,51,43,0.08)] backdrop-blur md:grid-cols-[1.6fr_1fr]">
           <div className="space-y-2">
@@ -351,7 +357,7 @@ export function HotelAdminConsole() {
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="text-base font-semibold text-stone-900">
-                        {formatRoomLabel(item.room_id, item.room_number)}
+                        {formatRoomLabel(item.room_id, item.room_number, item.room_display_name ?? roomDisplayNames.get(item.room_id))}
                       </p>
                       {item.emergency ? (
                         <span className="rounded-full bg-rose-100 px-2 py-1 text-[11px] font-semibold text-rose-800">
@@ -410,6 +416,6 @@ export function HotelAdminConsole() {
           </div>
         </section>
       </div>
-    </div>
+    </AdminShell>
   );
 }
