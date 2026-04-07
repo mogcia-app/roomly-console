@@ -5,6 +5,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
+  type AuthError,
   type User,
 } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
@@ -29,6 +30,22 @@ const initialState: AuthState = {
 };
 
 const LOCAL_MANUAL_LOGIN_KEY = "roomly-console:local-manual-login";
+
+function getLoginErrorMessage(error: unknown) {
+  const code = typeof error === "object" && error !== null && "code" in error ? (error as AuthError).code : "";
+
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-email":
+      return "メールアドレスまたはパスワードが違います";
+    case "auth/too-many-requests":
+      return "ログイン試行回数が多すぎます。しばらくしてから再試行してください";
+    default:
+      return error instanceof Error ? error.message : "login-failed";
+  }
+}
 
 export function useHotelAuth() {
   const [state, setState] = useState<AuthState>(initialState);
@@ -117,7 +134,11 @@ export function useHotelAuth() {
     if (typeof window !== "undefined" && window.location.hostname === "localhost") {
       window.sessionStorage.setItem(LOCAL_MANUAL_LOGIN_KEY, "allowed");
     }
-    await signInWithEmailAndPassword(auth, email, password);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      throw new Error(getLoginErrorMessage(error));
+    }
   }
 
   async function logout() {

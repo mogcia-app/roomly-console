@@ -435,6 +435,7 @@ export function FrontdeskSettingsPage() {
         pageSubtitle="通知や表示設定と、ゲスト案内に必要な運用情報を確認できます"
         pageTitle="設定"
         onLogout={() => logout()}
+        role={role}
       >
       <div className="px-4 py-5 sm:px-6 lg:px-8">
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_340px]">

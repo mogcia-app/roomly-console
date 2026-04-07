@@ -1,7 +1,5 @@
-import { connection } from "next/server";
-import { HotelAdminConsole } from "@/components/admin/hotel-admin-console";
+import { redirect } from "next/navigation";
 
-export default async function AdminPage() {
-  await connection();
-  return <HotelAdminConsole />;
+export default function AdminPage() {
+  redirect("/");
 }

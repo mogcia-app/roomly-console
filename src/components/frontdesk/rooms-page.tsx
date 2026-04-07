@@ -113,6 +113,7 @@ export function FrontdeskRoomsPage() {
       pageSubtitle="客室の表示名を編集できます"
       pageTitle="客室表示名"
       onLogout={() => logout()}
+      role={role}
     >
       <div className="px-4 py-5 sm:px-6 lg:px-8">
         {!isAdmin ? (

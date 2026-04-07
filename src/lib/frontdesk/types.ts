@@ -3,13 +3,16 @@ import type { Timestamp } from "firebase/firestore";
 export type ThreadMode = "ai" | "human";
 export type ThreadStatus = "new" | "in_progress" | "resolved";
 export type MessageSender = "guest" | "ai" | "front" | "system";
+export type TranslationState = "not_required" | "fallback" | "ready";
 
 export type FirestoreDate = Timestamp | null | undefined;
 
 export type ChatThreadRecord = {
   id: string;
   stay_id: string;
+  stayId?: string;
   room_id: string;
+  roomId?: string;
   room_number?: string;
   room_display_name?: string | null;
   hotel_id?: string;
@@ -42,11 +45,18 @@ export type ChatThreadRecord = {
 export type MessageRecord = {
   id: string;
   thread_id: string;
+  stay_id?: string;
+  room_id?: string;
   sender: MessageSender;
   body: string;
   timestamp?: FirestoreDate;
+  original_body?: string;
+  original_language?: string;
   translated_body_guest?: string;
+  translated_language_guest?: string;
   translated_body_front?: string;
+  translated_language_front?: string;
+  translation_state?: TranslationState;
   category?: string;
   priority?: string;
 };
@@ -80,4 +90,37 @@ export type RoomRecord = {
   floor?: string | null;
   room_type?: string | null;
   updated_at?: FirestoreDate;
+};
+
+export type StayStatus = "active" | "checked_out" | "cancelled";
+
+export type StayRecord = {
+  id: string;
+  hotel_id: string;
+  room_id: string;
+  is_active: boolean;
+  status: StayStatus;
+  check_in_at?: FirestoreDate;
+  check_out_at?: FirestoreDate;
+  scheduled_check_in_at?: FirestoreDate;
+  scheduled_check_out_at?: FirestoreDate;
+  auto_checked_out_at?: FirestoreDate;
+  check_out_mode?: "manual" | "automatic" | null;
+  created_at?: FirestoreDate;
+  updated_at?: FirestoreDate;
+  guest_name?: string | null;
+  guest_count?: number | null;
+  reservation_id?: string | null;
+  checked_in_by?: string | null;
+  checked_out_by?: string | null;
+  notes?: string | null;
+};
+
+export type RoomOccupancyStatus = "vacant" | "occupied" | "conflict";
+
+export type RoomStatusRecord = {
+  room: RoomRecord;
+  status: RoomOccupancyStatus;
+  active_stays: StayRecord[];
+  active_stay?: StayRecord | null;
 };

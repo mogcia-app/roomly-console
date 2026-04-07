@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getFirebaseAuth } from "@/lib/firebase";
-import type { HotelUserRecord } from "@/lib/users/types";
+import type { RoomStatusRecord } from "@/lib/frontdesk/types";
 
 async function getAuthorizationHeader() {
   const auth = getFirebaseAuth();
@@ -18,14 +18,14 @@ async function getAuthorizationHeader() {
   };
 }
 
-export function useHotelAdminStaff(enabled: boolean) {
-  const [staff, setStaff] = useState<HotelUserRecord[]>([]);
+export function useHotelAdminRoomStatuses(enabled: boolean) {
+  const [rooms, setRooms] = useState<RoomStatusRecord[]>([]);
   const [isLoading, setIsLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!enabled) {
-      setStaff([]);
+      setRooms([]);
       setIsLoading(false);
       return;
     }
@@ -34,18 +34,18 @@ export function useHotelAdminStaff(enabled: boolean) {
     setError(null);
 
     try {
-      const response = await fetch("/api/admin/staff", {
+      const response = await fetch("/api/admin/rooms/status", {
         headers: await getAuthorizationHeader(),
       });
-      const payload = (await response.json()) as { error?: string; users?: HotelUserRecord[] };
+      const payload = (await response.json()) as { error?: string; rooms?: RoomStatusRecord[] };
 
-      if (!response.ok || !payload.users) {
-        throw new Error(payload.error ?? "failed-to-load-staff");
+      if (!response.ok || !payload.rooms) {
+        throw new Error(payload.error ?? "failed-to-load-room-statuses");
       }
 
-      setStaff(payload.users);
+      setRooms(payload.rooms);
     } catch (fetchError) {
-      setError(fetchError instanceof Error ? fetchError.message : "failed-to-load-staff");
+      setError(fetchError instanceof Error ? fetchError.message : "failed-to-load-room-statuses");
     } finally {
       setIsLoading(false);
     }
@@ -56,7 +56,7 @@ export function useHotelAdminStaff(enabled: boolean) {
   }, [refresh]);
 
   return {
-    staff,
+    rooms,
     isLoading,
     error,
     refresh,

@@ -26,15 +26,19 @@ service cloud.firestore {
       return resourceHotelId is string && resourceHotelId == hotelId();
     }
 
+    function belongsToHotelResource(resourceData) {
+      return belongsToHotel(resourceData.hotel_id) || belongsToHotel(resourceData.hotelId);
+    }
+
     function hasOnlyChangedKeys(allowedKeys) {
       return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowedKeys);
     }
 
     match /chat_threads/{threadId} {
-      allow read: if isFrontRole() && belongsToHotel(resource.data.hotel_id);
+      allow read: if isFrontRole() && belongsToHotelResource(resource.data);
       allow create, delete: if false;
       allow update: if isFrontRole()
-        && belongsToHotel(resource.data.hotel_id)
+        && belongsToHotelResource(resource.data)
         && request.resource.data.hotel_id == resource.data.hotel_id;
     }
 
@@ -57,12 +61,12 @@ service cloud.firestore {
     }
 
     match /rooms/{roomId} {
-      allow read: if isFrontRole() && belongsToHotel(resource.data.hotel_id);
+      allow read: if isFrontRole() && belongsToHotelResource(resource.data);
       allow write: if false;
     }
 
     match /stays/{stayId} {
-      allow read: if isFrontRole() && belongsToHotel(resource.data.hotel_id);
+      allow read: if isFrontRole() && belongsToHotelResource(resource.data);
       allow write: if false;
     }
 

@@ -1,10 +1,10 @@
 "use client";
 
 import { startTransition, useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import {
-  acceptHumanThread,
   markThreadSeenByFront,
   resolveHumanThread,
   sendFrontMessage,
@@ -16,8 +16,8 @@ import {
   formatTime,
 } from "@/lib/frontdesk/format";
 import { FRONTDESK_NOTIFICATION_ENABLED_KEY } from "@/lib/frontdesk/preferences";
-import type { ChatThreadRecord } from "@/lib/frontdesk/types";
-import { useHotelRooms, useHumanThreads, useThreadMessages } from "@/hooks/useFrontdeskData";
+import type { ChatThreadRecord, MessageRecord } from "@/lib/frontdesk/types";
+import { useHotelRooms, useRecentThreads, useThreadMessages } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
 
 const defaultHotelId = process.env.NEXT_PUBLIC_DEFAULT_HOTEL_ID ?? "";
@@ -28,19 +28,6 @@ type ActionState = {
 } | null;
 
 type MobilePane = "list" | "chat";
-
-function statusTone(status: ChatThreadRecord["status"]) {
-  switch (status) {
-    case "new":
-      return "bg-[#fff3cd] text-[#8a5b00]";
-    case "in_progress":
-      return "bg-[#fff1ef] text-[#ad2218]";
-    case "resolved":
-      return "bg-[#f3e6e4] text-[#7d5a56]";
-    default:
-      return "bg-stone-100 text-stone-700";
-  }
-}
 
 function priorityValue(item: { emergency?: boolean; status?: string }) {
   if (item.emergency) {
@@ -80,18 +67,58 @@ function resolveRoomLabel(
   return formatRoomLabel(roomId, roomNumber, roomDisplayName ?? roomDisplayNames.get(roomId));
 }
 
+function resolveFrontMessageBody(message: MessageRecord) {
+  if (message.sender === "front") {
+    return message.original_body ?? message.body;
+  }
+
+  return message.translated_body_front ?? message.body ?? message.original_body ?? "";
+}
+
+function resolveMessageMeta(message: MessageRecord) {
+  if (message.sender === "front") {
+    const translatedGuestBody =
+      message.translated_body_guest && message.translated_body_guest !== (message.original_body ?? message.body)
+        ? message.translated_body_guest
+        : "";
+
+    return {
+      primaryLabel: "原文",
+      originalBody: "",
+      translatedGuestBody,
+      translationState: message.translation_state ?? "",
+      languageLabel: message.translated_language_guest ?? "",
+    };
+  }
+
+  const originalBody =
+    message.original_body && message.original_body !== (message.translated_body_front ?? message.body)
+      ? message.original_body
+      : "";
+
+  return {
+    primaryLabel: "翻訳",
+    originalBody,
+    translatedGuestBody: "",
+    translationState: message.translation_state ?? "",
+    languageLabel: message.original_language ?? "",
+  };
+}
+
 function ThreadListCard({
   thread,
+  roomLabel,
   isSelected,
   selectedByOther,
   onClick,
 }: {
   thread: ChatThreadRecord;
+  roomLabel: string;
   isSelected: boolean;
   selectedByOther: boolean;
   onClick: () => void;
 }) {
-  const roomLabel = formatRoomLabel(thread.room_id, thread.room_number, thread.room_display_name);
+  const roomInitial = roomLabel.slice(0, 1) || "客";
 
   return (
     <button
@@ -109,7 +136,7 @@ function ThreadListCard({
             isSelected ? "bg-[#ad2218] text-white" : "bg-[#fff1ef] text-[#7d2a22]"
           }`}
         >
-          {(thread.room_number ?? thread.room_id).slice(0, 1)}
+          {roomInitial}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
@@ -125,11 +152,11 @@ function ThreadListCard({
               {selectedByOther ? <span>他スタッフ対応中</span> : null}
             </div>
             {(thread.unread_count_front ?? 0) > 0 ? (
-              <span className="grid h-6 min-w-6 place-items-center rounded-full bg-[#ad2218] px-1.5 text-[11px] font-semibold text-white">
-                {Math.min(thread.unread_count_front ?? 0, 99)}
-              </span>
+              <span className="block h-2.5 w-2.5 rounded-full bg-[#ad2218]" aria-label="未読あり" />
             ) : thread.emergency ? (
               <span className="rounded-full bg-[#fff3f1] px-2 py-1 text-[11px] font-semibold text-[#d14b3d]">緊急</span>
+            ) : thread.status === "resolved" ? (
+              <span className="text-[11px] text-stone-400">完了</span>
             ) : null}
           </div>
         </div>
@@ -139,12 +166,17 @@ function ThreadListCard({
 }
 
 export function FrontdeskConsole() {
+  const searchParams = useSearchParams();
+  const requestedThreadId = searchParams.get("threadId") ?? "";
+  const requestedStayId = searchParams.get("stayId") ?? "";
   const { user, claims, isLoading: authLoading, error: authError, login, logout } = useHotelAuth();
   const [selectedThreadId, setSelectedThreadId] = useState("");
   const [draftMessage, setDraftMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [actionState, setActionState] = useState<ActionState>(null);
-  const [mobilePane, setMobilePane] = useState<MobilePane>("list");
+  const [mobilePane, setMobilePane] = useState<MobilePane>(() =>
+    requestedThreadId || requestedStayId ? "chat" : "list",
+  );
   const [isPending, startUiTransition] = useTransition();
   const notifiedThreadIdsRef = useState(() => new Set<string>())[0];
 
@@ -152,10 +184,13 @@ export function FrontdeskConsole() {
   const canOperate = role === "hotel_front" || role === "hotel_admin";
   const hotelId = useDeferredValue((claims?.hotel_id ?? defaultHotelId).trim());
   const staffUserId = useDeferredValue(user?.uid ?? "");
-  const humanThreads = useHumanThreads(hotelId);
+  const recentThreads = useRecentThreads(hotelId);
   const hotelRooms = useHotelRooms(hotelId);
 
-  const prioritizedThreads = useMemo(() => sortByPriority(humanThreads.data), [humanThreads.data]);
+  const prioritizedThreads = useMemo(
+    () => sortByPriority(recentThreads.data),
+    [recentThreads.data],
+  );
   const threadSummary = useMemo(
     () => ({
       total: prioritizedThreads.length,
@@ -188,10 +223,22 @@ export function FrontdeskConsole() {
     });
   }, [prioritizedThreads, roomDisplayNames, searchQuery]);
 
-  const selectedThread = useMemo(
-    () => filteredThreads.find((thread) => thread.id === selectedThreadId) ?? filteredThreads[0] ?? null,
-    [filteredThreads, selectedThreadId],
-  );
+  const selectedThread = useMemo(() => {
+    const explicitSelection = filteredThreads.find((thread) => thread.id === selectedThreadId);
+    if (explicitSelection) {
+      return explicitSelection;
+    }
+
+    if (requestedThreadId) {
+      return filteredThreads.find((thread) => thread.id === requestedThreadId) ?? null;
+    }
+
+    if (requestedStayId) {
+      return filteredThreads.find((thread) => (thread.stay_id ?? thread.stayId ?? "") === requestedStayId) ?? null;
+    }
+
+    return filteredThreads[0] ?? null;
+  }, [filteredThreads, requestedStayId, requestedThreadId, selectedThreadId]);
   const effectiveSelectedThreadId = selectedThread?.id ?? "";
   const threadMessages = useThreadMessages(effectiveSelectedThreadId);
   const selectedThreadMessages = useMemo(
@@ -199,13 +246,17 @@ export function FrontdeskConsole() {
     [selectedThread, threadMessages.data],
   );
   const hasConnectionContext = Boolean(hotelId && staffUserId && canOperate);
-  const selectedThreadStatusLabel = selectedThread
-    ? selectedThread.status === "new"
-      ? "新着"
-      : selectedThread.status === "in_progress"
-        ? "対応中"
-        : "完了"
-    : null;
+  const requestedStayHasThread = Boolean(
+    requestedStayId && filteredThreads.some((thread) => (thread.stay_id ?? thread.stayId ?? "") === requestedStayId),
+  );
+  const selectedRoomLabel = selectedThread
+    ? resolveRoomLabel(
+        selectedThread.room_id,
+        selectedThread.room_number,
+        selectedThread.room_display_name,
+        roomDisplayNames,
+      )
+    : "";
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -286,6 +337,7 @@ export function FrontdeskConsole() {
       pageSubtitle="問い合わせ確認と返信をまとめて行えます"
       pageTitle="チャット"
       onLogout={() => logout()}
+      role={role}
       variant="messenger"
     >
       {!canOperate ? (
@@ -357,13 +409,19 @@ export function FrontdeskConsole() {
             </div>
 
             <div className="space-y-3 overflow-y-auto p-3 lg:max-h-[calc(100vh-180px)] lg:p-4">
-              {humanThreads.isLoading ? <p className="text-sm text-stone-500">一覧を読み込み中です</p> : null}
-              {humanThreads.error ? <p className="text-sm text-rose-700">{humanThreads.error}</p> : null}
+              {recentThreads.isLoading ? <p className="text-sm text-stone-500">一覧を読み込み中です</p> : null}
+              {recentThreads.error ? <p className="text-sm text-rose-700">{recentThreads.error}</p> : null}
 
               {filteredThreads.map((thread) => (
                 <ThreadListCard
                   key={thread.id}
                   thread={thread}
+                  roomLabel={resolveRoomLabel(
+                    thread.room_id,
+                    thread.room_number,
+                    thread.room_display_name,
+                    roomDisplayNames,
+                  )}
                   isSelected={selectedThread?.id === thread.id}
                   selectedByOther={
                     thread.status === "in_progress" && Boolean(thread.assigned_to && thread.assigned_to !== staffUserId)
@@ -372,9 +430,11 @@ export function FrontdeskConsole() {
                 />
               ))}
 
-              {!humanThreads.isLoading && filteredThreads.length === 0 ? (
+              {!recentThreads.isLoading && filteredThreads.length === 0 ? (
                 <p className="rounded-2xl border border-dashed border-[#ecd2cf] bg-white px-4 py-5 text-sm text-stone-500">
-                  対応待ちのチャットはありません
+                  {requestedStayId && !requestedStayHasThread
+                    ? "この滞在にはまだチャットがありません"
+                    : "トークはまだありません"}
                 </p>
               ) : null}
             </div>
@@ -396,98 +456,78 @@ export function FrontdeskConsole() {
                   <div className="flex items-center gap-3">
                     {selectedThread ? (
                       <div className="grid h-12 w-12 place-items-center rounded-full bg-[#ad2218] text-lg font-semibold text-white">
-                        {(selectedThread.room_number ?? selectedThread.room_id).slice(0, 1)}
+                        {selectedRoomLabel.slice(0, 1) || "客"}
                       </div>
                     ) : null}
                     <div className="min-w-0">
                       <h2 className="truncate text-lg font-semibold text-stone-950">
-                        {selectedThread
-                          ? resolveRoomLabel(
-                              selectedThread.room_id,
-                              selectedThread.room_number,
-                              selectedThread.room_display_name,
-                              roomDisplayNames,
-                            )
-                          : "スレッド未選択"}
+                        {selectedThread ? selectedRoomLabel : "スレッド未選択"}
                       </h2>
-                      <p className="mt-1 truncate text-xs text-stone-500">
-                        {selectedThread
-                          ? `${selectedThread.guest_language ?? "言語未設定"}  ${selectedThread.assigned_to ?? "担当未設定"}`
-                          : "左の一覧から問い合わせを選択してください"}
-                      </p>
+                      {!selectedThread ? (
+                        <p className="mt-1 truncate text-xs text-stone-500">左の一覧から問い合わせを選択してください</p>
+                      ) : null}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                  {selectedThreadStatusLabel ? (
-                    <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusTone(selectedThread.status)}`}>
-                      {selectedThreadStatusLabel}
-                    </span>
+                <div className="hidden lg:flex lg:items-center lg:gap-2">
+                  {selectedThread?.status !== "resolved" ? (
+                    <button
+                      type="button"
+                      className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={!selectedThread || !hasConnectionContext || isPending}
+                      onClick={() =>
+                        selectedThread &&
+                        void runAction(
+                          () => resolveHumanThread(selectedThread.id, staffUserId),
+                          `${resolveRoomLabel(
+                            selectedThread.room_id,
+                            selectedThread.room_number,
+                            selectedThread.room_display_name,
+                            roomDisplayNames,
+                          )} のチャットを完了にしました`,
+                        )
+                      }
+                    >
+                      完了
+                    </button>
                   ) : null}
-                  {selectedThread?.emergency ? (
-                    <span className="rounded-full bg-[#fff3f1] px-3 py-1.5 text-xs font-semibold text-[#d14b3d]">
-                      緊急
-                    </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="rounded-full bg-[#fff1ef] px-3 py-1.5 text-xs font-semibold text-[#ad2218] transition hover:bg-[#ffe7e3] disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
-                    disabled={!selectedThread || !hasConnectionContext || isPending}
-                    onClick={() =>
-                      selectedThread &&
-                      void runAction(
-                        () => acceptHumanThread(selectedThread.id, staffUserId),
-                        `${resolveRoomLabel(
-                          selectedThread.room_id,
-                          selectedThread.room_number,
-                          selectedThread.room_display_name,
-                          roomDisplayNames,
-                        )} のチャット着手を記録しました`,
-                      )
-                    }
-                  >
-                    対応中
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!selectedThread || !hasConnectionContext || isPending}
-                    onClick={() =>
-                      selectedThread &&
-                      void runAction(
-                        () => resolveHumanThread(selectedThread.id, staffUserId),
-                        `${resolveRoomLabel(
-                          selectedThread.room_id,
-                          selectedThread.room_number,
-                          selectedThread.room_display_name,
-                          roomDisplayNames,
-                        )} のチャットを完了にしました`,
-                      )
-                    }
-                  >
-                    完了
-                  </button>
                 </div>
-              </div>
-            </div>
-
-            <div className="border-b border-[#ecd2cf] bg-[#fff8f7] px-4 py-3 lg:px-6">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500">
-                <span className="rounded-full bg-white px-3 py-1.5 font-semibold text-stone-700">
-                  {selectedThread ? formatInquiryType(selectedThread.event_type, "chat") : "待機中"}
-                </span>
-                {selectedThread?.category ? (
-                  <span className="rounded-full bg-white px-3 py-1.5">{selectedThread.category}</span>
-                ) : null}
-                {selectedThread?.guest_language ? (
-                  <span className="rounded-full bg-white px-3 py-1.5">{selectedThread.guest_language}</span>
-                ) : null}
               </div>
             </div>
 
             <div className="flex min-h-[calc(100dvh-318px)] flex-col lg:min-h-[calc(100vh-210px)]">
               <div className="flex-1 space-y-4 overflow-y-auto bg-white px-4 py-5 sm:px-5 lg:px-6 lg:py-6">
+                <div className="flex items-center justify-between gap-3 lg:hidden">
+                  <button
+                    type="button"
+                    className="rounded-full border border-stone-200 px-3 py-1.5 text-sm text-stone-600"
+                    onClick={() => setMobilePane("list")}
+                  >
+                    一覧へ戻る
+                  </button>
+                  {selectedThread?.status !== "resolved" ? (
+                    <button
+                      type="button"
+                      className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={!selectedThread || !hasConnectionContext || isPending}
+                      onClick={() =>
+                        selectedThread &&
+                        void runAction(
+                          () => resolveHumanThread(selectedThread.id, staffUserId),
+                          `${resolveRoomLabel(
+                            selectedThread.room_id,
+                            selectedThread.room_number,
+                            selectedThread.room_display_name,
+                            roomDisplayNames,
+                          )} のチャットを完了にしました`,
+                        )
+                      }
+                    >
+                      完了
+                    </button>
+                  ) : null}
+                </div>
                 {selectedThreadId && threadMessages.isLoading ? (
                   <p className="text-sm text-stone-500">メッセージを読み込み中です</p>
                 ) : null}
@@ -505,6 +545,8 @@ export function FrontdeskConsole() {
 
                 {selectedThreadMessages.map((message) => {
                   const isFront = message.sender === "front";
+                  const displayBody = resolveFrontMessageBody(message);
+                  const meta = resolveMessageMeta(message);
 
                   return (
                     <article key={message.id} className={`flex ${isFront ? "justify-end" : "justify-start"}`}>
@@ -517,7 +559,26 @@ export function FrontdeskConsole() {
                           }`}
                         >
                           <div className="mb-1 text-[11px] text-stone-500">{formatSenderLabel(message.sender)}</div>
-                          <p className="whitespace-pre-wrap text-[15px] leading-6">{message.body}</p>
+                          <p className="whitespace-pre-wrap text-[15px] leading-6">{displayBody}</p>
+                          {meta.originalBody ? (
+                            <div className="mt-2 rounded-[6px] bg-black/5 px-3 py-2 text-xs leading-5 text-stone-600">
+                              <div className="font-semibold text-stone-500">
+                                原文{meta.languageLabel ? ` (${meta.languageLabel})` : ""}
+                              </div>
+                              <p className="mt-1 whitespace-pre-wrap">{meta.originalBody}</p>
+                            </div>
+                          ) : null}
+                          {meta.translatedGuestBody ? (
+                            <div className="mt-2 rounded-[6px] bg-black/5 px-3 py-2 text-xs leading-5 text-stone-600">
+                              <div className="font-semibold text-stone-500">
+                                ゲスト向け翻訳{meta.languageLabel ? ` (${meta.languageLabel})` : ""}
+                              </div>
+                              <p className="mt-1 whitespace-pre-wrap">{meta.translatedGuestBody}</p>
+                            </div>
+                          ) : null}
+                          {meta.translationState === "fallback" ? (
+                            <div className="mt-2 text-xs font-semibold text-amber-700">翻訳確認推奨</div>
+                          ) : null}
                         </div>
                         <div className={`mt-1 px-1 text-[11px] text-stone-400 ${isFront ? "text-right" : "text-left"}`}>
                           {formatTime(message.timestamp)}

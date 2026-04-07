@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 
 type FrontdeskSidebarProps = {
   onLogout: () => void;
+  role?: string;
 };
 
-const navItems = [
+const baseNavItems = [
   {
     href: "/",
     label: "チャット",
@@ -20,7 +21,7 @@ const navItems = [
   },
   {
     href: "/rooms",
-    label: "客室名",
+    label: "滞在管理",
     icon: (
       <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-none" stroke="currentColor" strokeWidth="1.8">
         <path d="M4 20h16" />
@@ -46,20 +47,19 @@ export function FrontdeskSidebar({
   onLogout,
 }: FrontdeskSidebarProps) {
   const pathname = usePathname();
+  const navItems = baseNavItems;
 
   return (
-    <aside className="flex items-center justify-between gap-3 px-3 py-2.5 lg:h-full lg:flex-col lg:justify-start lg:px-3 lg:py-4">
-      <div className="hidden lg:grid lg:w-full lg:justify-items-center">
-        <div className="grid h-14 w-14 place-items-center rounded-[24px] bg-[#ad2218] text-sm font-semibold text-white shadow-[0_18px_35px_rgba(173,34,24,0.24)]">
-          室
+    <aside className="flex items-center justify-between gap-3 px-3 py-2.5 lg:h-full lg:flex-col lg:justify-start lg:px-4 lg:py-5">
+      <div className="hidden lg:block lg:w-full">
+        <div className="rounded-[18px] border border-stone-200 bg-white px-4 py-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">Roomly</p>
+          <h2 className="mt-2 text-base font-semibold text-stone-900">Front Desk</h2>
         </div>
-        <p className="mt-3 text-center text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">
-          Console
-        </p>
       </div>
 
       <div className="min-w-0 flex-1">
-        <nav className="grid grid-cols-4 gap-1.5 lg:mt-8 lg:grid-cols-1 lg:gap-2">
+        <nav className={`grid gap-1.5 lg:mt-6 lg:grid-cols-1 lg:gap-1.5 ${navItems.length > 4 ? "grid-cols-5" : "grid-cols-4"}`}>
           {navItems.map((item) => {
             const isActive = pathname === item.href;
 
@@ -69,14 +69,14 @@ export function FrontdeskSidebar({
                 href={item.href}
                 aria-label={item.label}
                 title={item.label}
-                className={`flex min-h-14 items-center justify-center gap-2 rounded-[20px] px-2 text-xs font-semibold transition lg:min-h-12 lg:w-full lg:px-3 ${
+                className={`flex min-h-14 items-center justify-center gap-2 rounded-[16px] px-2 text-xs font-medium transition lg:min-h-11 lg:w-full lg:justify-start lg:px-4 ${
                   isActive
-                    ? "bg-[#fff1ef] shadow-sm ring-1 ring-[#f0c6c2] lg:bg-stone-950"
-                    : "hover:bg-stone-100"
+                    ? "bg-stone-950 text-white"
+                    : "text-stone-600 hover:bg-white hover:text-stone-900"
                 }`}
               >
-                <span className={isActive ? "text-[#ad2218] lg:text-white" : "text-stone-600"}>{item.icon}</span>
-                <span className={`sm:inline lg:hidden ${isActive ? "text-[#ad2218]" : "text-stone-600"}`}>{item.label}</span>
+                <span className={isActive ? "text-white" : "text-stone-500"}>{item.icon}</span>
+                <span className={isActive ? "text-white" : "text-stone-700"}>{item.label}</span>
               </Link>
             );
           })}
@@ -88,7 +88,7 @@ export function FrontdeskSidebar({
           type="button"
           aria-label="ログアウト"
           title="ログアウト"
-          className="flex h-12 w-12 items-center justify-center rounded-[20px] text-stone-500 transition hover:bg-stone-100 lg:w-full lg:gap-2 lg:px-3"
+          className="flex h-12 w-12 items-center justify-center rounded-[16px] text-stone-500 transition hover:bg-white hover:text-stone-900 lg:w-full lg:justify-start lg:gap-2 lg:px-4"
           onClick={onLogout}
         >
           <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-none" stroke="currentColor" strokeWidth="1.8">

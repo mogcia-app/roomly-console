@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
+import type { StayRecord } from "@/lib/frontdesk/types";
 import {
-  buildInquiryHistory,
   subscribeHotelRooms,
+  subscribeHotelStays,
   subscribeRecentThreads,
   subscribeHumanThreads,
   subscribeThreadMessages,
@@ -39,6 +40,19 @@ export function useThreadMessages(threadId: string) {
   });
 }
 
+export function useHotelRooms(hotelId: string) {
+  const subscribe = useMemo(
+    () => (onData: Parameters<typeof subscribeHotelRooms>[1], onError: Parameters<typeof subscribeHotelRooms>[2]) =>
+      subscribeHotelRooms(hotelId, onData, onError),
+    [hotelId],
+  );
+
+  return useRealtimeCollection({
+    enabled: Boolean(hotelId),
+    subscribe,
+  });
+}
+
 export function useRecentThreads(hotelId: string) {
   const subscribe = useMemo(
     () =>
@@ -55,17 +69,19 @@ export function useRecentThreads(hotelId: string) {
   });
 }
 
-export function useHotelRooms(hotelId: string) {
+export function useHotelActiveStays(hotelId: string) {
   const subscribe = useMemo(
-    () => (onData: Parameters<typeof subscribeHotelRooms>[1], onError: Parameters<typeof subscribeHotelRooms>[2]) =>
-      subscribeHotelRooms(hotelId, onData, onError),
+    () => (onData: Parameters<typeof subscribeHotelStays>[1], onError: Parameters<typeof subscribeHotelStays>[2]) =>
+      subscribeHotelStays(hotelId, onData, onError),
     [hotelId],
   );
 
   return useRealtimeCollection({
     enabled: Boolean(hotelId),
-    subscribe,
+    subscribe: (onData: (stays: StayRecord[]) => void, onError) =>
+      subscribe(
+        (stays) => onData(stays.filter((stay) => stay.is_active)),
+        onError,
+      ),
   });
 }
-
-export { buildInquiryHistory };

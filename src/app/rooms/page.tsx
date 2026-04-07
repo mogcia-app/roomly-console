@@ -1,5 +1,5 @@
-import { FrontdeskRoomsPage } from "@/components/frontdesk/rooms-page";
+import { FrontdeskStayManagementPage } from "@/components/frontdesk/stay-management-page";
 
 export default function RoomsPage() {
-  return <FrontdeskRoomsPage />;
+  return <FrontdeskStayManagementPage />;
 }

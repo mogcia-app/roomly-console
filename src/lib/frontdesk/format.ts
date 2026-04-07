@@ -12,12 +12,50 @@ const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
   minute: "2-digit",
 });
 
-export function formatDateTime(value: FirestoreDate) {
+function toDisplayDate(value: FirestoreDate | Date | string | { seconds?: number; _seconds?: number } | null | undefined) {
   if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  if (typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
+    const parsed = value.toDate();
+    return parsed instanceof Date && !Number.isNaN(parsed.getTime()) ? parsed : null;
+  }
+
+  if (typeof value === "object") {
+    const objectValue = value as { seconds?: number; _seconds?: number };
+    const seconds =
+      typeof objectValue.seconds === "number"
+        ? objectValue.seconds
+        : typeof objectValue._seconds === "number"
+          ? objectValue._seconds
+          : null;
+
+    if (seconds !== null) {
+      const parsed = new Date(seconds * 1000);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+  }
+
+  return null;
+}
+
+export function formatDateTime(value: FirestoreDate) {
+  const parsed = toDisplayDate(value);
+  if (!parsed) {
     return "未設定";
   }
 
-  return dateTimeFormatter.format(value.toDate());
+  return dateTimeFormatter.format(parsed);
 }
 
 export function formatIsoDateTime(value?: string | null) {
@@ -29,22 +67,28 @@ export function formatIsoDateTime(value?: string | null) {
 }
 
 export function formatTime(value: FirestoreDate) {
-  if (!value) {
+  const parsed = toDisplayDate(value);
+  if (!parsed) {
     return "--:--";
   }
 
-  return timeFormatter.format(value.toDate());
+  return timeFormatter.format(parsed);
 }
 
 export function formatRoomLabel(roomId: string, roomNumber?: string, displayName?: string | null) {
+  const trimmedDisplayName = displayName?.trim();
+
+  if (trimmedDisplayName) {
+    return trimmedDisplayName;
+  }
+
   const base = roomNumber || roomId;
 
   if (!base) {
     return "部屋未設定";
   }
 
-  const trimmedDisplayName = displayName?.trim();
-  return trimmedDisplayName ? `${base} (${trimmedDisplayName})` : base;
+  return base;
 }
 
 export function formatSenderLabel(sender: MessageSender) {

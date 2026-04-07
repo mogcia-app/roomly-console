@@ -9,6 +9,7 @@ type FrontdeskShellProps = {
   pageSubtitle: string;
   pageTitle: string;
   onLogout: () => void;
+  role?: string;
   variant?: "default" | "messenger";
 };
 
@@ -18,6 +19,7 @@ export function FrontdeskShell({
   pageSubtitle,
   pageTitle,
   onLogout,
+  role,
   variant = "default",
 }: FrontdeskShellProps) {
   const isMessenger = variant === "messenger";
@@ -25,7 +27,7 @@ export function FrontdeskShell({
 
   return (
     <div
-      className={`min-h-dvh text-stone-900 lg:grid lg:grid-cols-[92px_minmax(0,1fr)] ${
+      className={`min-h-dvh text-stone-900 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] ${
         useFixedLayout
           ? isMessenger
             ? "h-dvh overflow-hidden bg-[#f6ecea]"
@@ -36,11 +38,11 @@ export function FrontdeskShell({
       <div
         className={`fixed inset-x-0 bottom-0 z-30 border-t backdrop-blur lg:static lg:border-r lg:border-t-0 ${
           variant === "messenger"
-            ? "border-[#ecd2cf] bg-white/96 lg:bg-[#fff7f6]"
-            : "border-stone-200 bg-white/95 lg:bg-white/80 lg:backdrop-blur-xl"
+            ? "border-[#e7d5d1] bg-white/96 lg:bg-[#fffaf9]"
+            : "border-stone-200 bg-white/95 lg:bg-white/88 lg:backdrop-blur-xl"
         }`}
       >
-        <FrontdeskSidebar onLogout={onLogout} />
+        <FrontdeskSidebar onLogout={onLogout} role={role} />
       </div>
 
       <main className={`min-w-0 pb-24 lg:pb-0 ${useFixedLayout ? "flex h-dvh flex-col overflow-hidden" : ""}`}>
