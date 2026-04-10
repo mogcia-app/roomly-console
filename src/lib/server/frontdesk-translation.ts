@@ -1,3 +1,4 @@
+import { normalizeGuestLanguage } from "@/lib/frontdesk/languages";
 import type { TranslationState } from "@/lib/frontdesk/types";
 
 const DEFAULT_TRANSLATION_MODEL = process.env.OPENAI_TRANSLATION_MODEL || "gpt-4.1-mini";
@@ -29,15 +30,19 @@ function toShortLanguageCode(value: string | null | undefined) {
     english: "en",
     "en-us": "en",
     "en-gb": "en",
-    chinese: "zh",
-    "zh-cn": "zh",
-    "zh-tw": "zh",
+    chinese: "zh-CN",
+    "zh-cn": "zh-CN",
+    "zh-tw": "zh-TW",
     korean: "ko",
     "ko-kr": "ko",
   };
 
   if (aliases[normalized]) {
     return aliases[normalized];
+  }
+
+  if (normalized.startsWith("zh")) {
+    return normalizeGuestLanguage(normalized);
   }
 
   const [shortCode] = normalized.split("-");
@@ -190,4 +195,3 @@ export function buildTranslationPayload(params: {
     translation_state: params.translationState,
   };
 }
-

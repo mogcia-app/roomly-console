@@ -6,6 +6,7 @@ import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import { useHotelAdminRoomStatuses } from "@/hooks/useHotelAdminRoomStatuses";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { formatGuestLanguageLabel, SUPPORTED_GUEST_LANGUAGE_OPTIONS } from "@/lib/frontdesk/languages";
 import { formatDateTime, formatRoomLabel } from "@/lib/frontdesk/format";
 import type { RoomRecord, RoomStatusRecord } from "@/lib/frontdesk/types";
 
@@ -16,6 +17,7 @@ type ActionState = {
 
 type CheckInDraft = {
   guestCount: string;
+  guestLanguage: string;
   guestName: string;
   notes: string;
   checkInAt: string;
@@ -40,6 +42,7 @@ function buildInitialScheduledCheckOutAtValue() {
 
 const emptyCheckInDraft: CheckInDraft = {
   guestCount: "2",
+  guestLanguage: "ja",
   guestName: "",
   notes: "",
   checkInAt: buildInitialCheckInAtValue(),
@@ -214,6 +217,7 @@ export function FrontdeskStayManagementPage() {
           body: JSON.stringify({
             roomId: room.room_id,
             guestCount,
+            guestLanguage: draft.guestLanguage,
             guestName: draft.guestName || undefined,
             notes: draft.notes || undefined,
             checkInAt: draft.checkInAt || undefined,
@@ -409,6 +413,12 @@ export function FrontdeskStayManagementPage() {
                       <dd className="mt-1 text-stone-700">{infoValue(activeStay?.guest_count)}</dd>
                     </div>
                     <div>
+                      <dt className="text-xs text-stone-400">使用言語</dt>
+                      <dd className="mt-1 text-stone-700">
+                        {activeStay?.guest_language ? formatGuestLanguageLabel(activeStay.guest_language) : "-"}
+                      </dd>
+                    </div>
+                    <div>
                       <dt className="text-xs text-stone-400">ゲスト名</dt>
                       <dd className="mt-1 text-stone-700">{infoValue(activeStay?.guest_name)}</dd>
                     </div>
@@ -467,6 +477,28 @@ export function FrontdeskStayManagementPage() {
                             }))
                           }
                         />
+                      </label>
+                      <label className="grid gap-2 text-sm">
+                        <span>使用言語</span>
+                        <select
+                          className="rounded-none border border-stone-200 bg-white px-3 py-2.5 outline-none transition focus:border-stone-400"
+                          value={checkInDraft.guestLanguage}
+                          onChange={(event) =>
+                            setCheckInDrafts((current) => ({
+                              ...current,
+                              [room.id]: {
+                                ...(current[room.id] ?? emptyCheckInDraft),
+                                guestLanguage: event.target.value,
+                              },
+                            }))
+                          }
+                        >
+                          {SUPPORTED_GUEST_LANGUAGE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <label className="grid gap-2 text-sm">
                         <span>チェックイン時刻</span>

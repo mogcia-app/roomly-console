@@ -32,6 +32,20 @@ function mapStayRecord(docId: string, data: Record<string, unknown>): StayRecord
           ? data.isActive
           : data.status === "active",
     status: data.status === "checked_out" || data.status === "cancelled" ? data.status : "active",
+    guest_language:
+      typeof data.guest_language === "string"
+        ? data.guest_language
+        : typeof data.guestLanguage === "string"
+          ? data.guestLanguage
+          : typeof data.language === "string"
+            ? data.language
+            : null,
+    translation_enabled:
+      typeof data.translation_enabled === "boolean"
+        ? data.translation_enabled
+        : typeof data.translationEnabled === "boolean"
+          ? data.translationEnabled
+          : null,
     check_in_at: (data.check_in_at as StayRecord["check_in_at"]) ?? (data.checkInAt as StayRecord["check_in_at"]) ?? null,
     check_out_at:
       (data.check_out_at as StayRecord["check_out_at"]) ?? (data.checkOutAt as StayRecord["check_out_at"]) ?? null,

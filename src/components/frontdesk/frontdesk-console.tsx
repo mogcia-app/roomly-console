@@ -9,6 +9,7 @@ import {
   resolveHumanThread,
   sendFrontMessage,
 } from "@/lib/frontdesk/firestore";
+import { formatGuestLanguageLabel } from "@/lib/frontdesk/languages";
 import {
   formatInquiryType,
   formatRoomLabel,
@@ -148,7 +149,7 @@ function ThreadListCard({
           </p>
           <div className="mt-3 flex items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2 text-stone-400">
-              <span>{thread.guest_language ?? "言語未設定"}</span>
+              <span>{thread.guest_language ? formatGuestLanguageLabel(thread.guest_language) : "言語未設定"}</span>
               {selectedByOther ? <span>他スタッフ対応中</span> : null}
             </div>
             {(thread.unread_count_front ?? 0) > 0 ? (
@@ -219,7 +220,8 @@ export function FrontdeskConsole() {
       ).toLowerCase();
       const category = (thread.category ?? "").toLowerCase();
       const lang = (thread.guest_language ?? "").toLowerCase();
-      return room.includes(query) || category.includes(query) || lang.includes(query);
+      const langLabel = formatGuestLanguageLabel(thread.guest_language).toLowerCase();
+      return room.includes(query) || category.includes(query) || lang.includes(query) || langLabel.includes(query);
     });
   }, [prioritizedThreads, roomDisplayNames, searchQuery]);
 

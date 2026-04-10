@@ -100,6 +100,8 @@ export type StayRecord = {
   room_id: string;
   is_active: boolean;
   status: StayStatus;
+  guest_language?: string | null;
+  translation_enabled?: boolean | null;
   check_in_at?: FirestoreDate;
   check_out_at?: FirestoreDate;
   scheduled_check_in_at?: FirestoreDate;

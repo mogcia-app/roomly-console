@@ -12,6 +12,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as Partial<{
       roomId: string;
       guestCount: number;
+      guestLanguage: string;
       guestName: string;
       reservationId: string;
       notes: string;
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
       hotelId: admin.hotelId,
       roomId: body.roomId,
       guestCount: body.guestCount,
+      guestLanguage: body.guestLanguage,
       guestName: body.guestName,
       reservationId: body.reservationId,
       notes: body.notes,

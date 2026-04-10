@@ -1,4 +1,5 @@
 import { FieldValue, Timestamp, type DocumentData, type DocumentSnapshot, type QueryDocumentSnapshot } from "firebase-admin/firestore";
+import { isTranslationRequired, normalizeGuestLanguage } from "@/lib/frontdesk/languages";
 import type { RoomStatusRecord, StayRecord, StayStatus } from "@/lib/frontdesk/types";
 import { listHotelRooms } from "@/lib/server/rooms";
 import { getFirebaseAdminDb } from "@/lib/server/firebase-admin";
@@ -51,6 +52,9 @@ function mapStayRecord(document: QueryDocumentSnapshot<DocumentData> | DocumentS
     room_id: readString(data.room_id) || readString(data.roomId),
     is_active: isActive,
     status,
+    guest_language: readNullableString(data.guest_language) ?? readNullableString(data.guestLanguage) ?? readNullableString(data.language),
+    translation_enabled:
+      readBoolean(data.translation_enabled) ?? readBoolean(data.translationEnabled) ?? null,
     check_in_at: readTimestamp(data.check_in_at) ?? readTimestamp(data.checkInAt) ?? readTimestamp(data.check_in),
     check_out_at: readTimestamp(data.check_out_at) ?? readTimestamp(data.checkOutAt),
     scheduled_check_in_at:
@@ -227,6 +231,7 @@ export async function createStayCheckIn(params: {
   roomId: string;
   guestCount: number;
   adminUid: string;
+  guestLanguage?: string;
   guestName?: string;
   reservationId?: string;
   notes?: string;
@@ -256,6 +261,8 @@ export async function createStayCheckIn(params: {
   const guestName = readNullableString(params.guestName);
   const reservationId = readNullableString(params.reservationId);
   const notes = readNullableString(params.notes);
+  const guestLanguage = normalizeGuestLanguage(params.guestLanguage);
+  const translationEnabled = isTranslationRequired(guestLanguage);
   const checkInAt = parseOptionalIsoDate(params.checkInAt);
   const scheduledCheckOutAt = parseOptionalIsoDate(params.scheduledCheckOutAt);
 
@@ -271,6 +278,11 @@ export async function createStayCheckIn(params: {
     is_active: true,
     isActive: true,
     status: "active",
+    guest_language: guestLanguage,
+    guestLanguage,
+    language: guestLanguage,
+    translation_enabled: translationEnabled,
+    translationEnabled,
     check_in_at: checkInAt ?? FieldValue.serverTimestamp(),
     checkInAt: checkInAt ?? FieldValue.serverTimestamp(),
     check_out_at: null,
