@@ -11,6 +11,39 @@ function readString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function buildMessagePayload(params: {
+  threadId: string;
+  stayId: string | null;
+  roomId: string | null;
+  translationPayload: ReturnType<typeof buildTranslationPayload>;
+}) {
+  return {
+    thread_id: params.threadId,
+    threadId: params.threadId,
+    stay_id: params.stayId,
+    stayId: params.stayId,
+    room_id: params.roomId,
+    roomId: params.roomId,
+    sender: "front",
+    timestamp: FieldValue.serverTimestamp(),
+    body: params.translationPayload.body,
+    original_body: params.translationPayload.original_body,
+    originalBody: params.translationPayload.original_body,
+    original_language: params.translationPayload.original_language,
+    originalLanguage: params.translationPayload.original_language,
+    translated_body_front: params.translationPayload.translated_body_front,
+    translatedBodyFront: params.translationPayload.translated_body_front,
+    translated_language_front: params.translationPayload.translated_language_front,
+    translatedLanguageFront: params.translationPayload.translated_language_front,
+    translated_body_guest: params.translationPayload.translated_body_guest,
+    translatedBodyGuest: params.translationPayload.translated_body_guest,
+    translated_language_guest: params.translationPayload.translated_language_guest,
+    translatedLanguageGuest: params.translationPayload.translated_language_guest,
+    translation_state: params.translationPayload.translation_state,
+    translationState: params.translationPayload.translation_state,
+  };
+}
+
 async function resolveGuestLanguage(thread: Omit<ChatThreadRecord, "id">) {
   const threadLanguage = readString(thread.guest_language);
   if (threadLanguage) {
@@ -90,25 +123,39 @@ export async function saveFrontDeskMessage(params: {
   });
 
   await adminDb.runTransaction(async (transaction) => {
-    transaction.set(messageRef, {
-      thread_id: params.threadId,
-      stay_id: thread.stay_id ?? thread.stayId ?? null,
-      room_id: thread.room_id ?? thread.roomId ?? null,
-      sender: "front",
-      timestamp: FieldValue.serverTimestamp(),
-      ...payload,
-    });
+    const stayId = thread.stay_id ?? thread.stayId ?? null;
+    const roomId = thread.room_id ?? thread.roomId ?? null;
+
+    transaction.set(
+      messageRef,
+      buildMessagePayload({
+        threadId: params.threadId,
+        stayId,
+        roomId,
+        translationPayload: payload,
+      }),
+    );
 
     transaction.update(threadRef, {
       status: "in_progress",
       assigned_to: params.staffUserId,
+      assignedTo: params.staffUserId,
       assigned_at: thread.assigned_at ?? FieldValue.serverTimestamp(),
+      assignedAt: thread.assigned_at ?? FieldValue.serverTimestamp(),
       guest_language: thread.guest_language ?? translation.targetLanguage,
+      guestLanguage: thread.guest_language ?? translation.targetLanguage,
       last_message_body: payload.body,
+      lastMessageBody: payload.body,
       last_message_at: FieldValue.serverTimestamp(),
+      lastMessageAt: FieldValue.serverTimestamp(),
       last_message_sender: "front",
+      lastMessageSender: "front",
       unread_count_front: 0,
+      unreadCountFront: 0,
+      unread_count_guest: FieldValue.increment(1),
+      unreadCountGuest: FieldValue.increment(1),
       updated_at: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
   });
 
