@@ -50,16 +50,13 @@ export function FrontdeskSidebar({
   const navItems = baseNavItems;
 
   return (
-    <aside className="flex items-center justify-between gap-3 px-3 py-2.5 lg:h-full lg:flex-col lg:justify-start lg:px-4 lg:py-5">
+    <aside className="flex items-center justify-between gap-2 px-2.5 py-2 lg:h-full lg:flex-col lg:justify-start lg:gap-0 lg:px-3 lg:py-3">
       <div className="hidden lg:block lg:w-full">
-        <div className="rounded-[18px] border border-stone-200 bg-white px-4 py-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">Roomly</p>
-          <h2 className="mt-2 text-base font-semibold text-stone-900">Front Desk</h2>
-        </div>
+        <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Roomly Front Desk</p>
       </div>
 
-      <div className="min-w-0 flex-1">
-        <nav className={`grid gap-1.5 lg:mt-6 lg:grid-cols-1 lg:gap-1.5 ${navItems.length > 4 ? "grid-cols-5" : "grid-cols-4"}`}>
+      <div className="min-w-0 flex-1 lg:mt-4 lg:w-full">
+        <nav className={`grid gap-1 lg:grid-cols-1 ${navItems.length > 4 ? "grid-cols-5" : "grid-cols-4"}`}>
           {navItems.map((item) => {
             const isActive = pathname === item.href;
 
@@ -69,10 +66,10 @@ export function FrontdeskSidebar({
                 href={item.href}
                 aria-label={item.label}
                 title={item.label}
-                className={`flex min-h-14 items-center justify-center gap-2 rounded-[16px] px-2 text-xs font-medium transition lg:min-h-11 lg:w-full lg:justify-start lg:px-4 ${
+                className={`flex min-h-12 items-center justify-center gap-2 rounded-[10px] border px-2.5 text-[12px] font-medium transition lg:min-h-9 lg:w-full lg:justify-start lg:px-3 ${
                   isActive
-                    ? "bg-stone-950 text-white"
-                    : "text-stone-600 hover:bg-white hover:text-stone-900"
+                    ? "border-stone-950 bg-stone-950 text-white"
+                    : "border-transparent text-stone-600 hover:border-stone-200 hover:bg-white hover:text-stone-900"
                 }`}
               >
                 <span className={isActive ? "text-white" : "text-stone-500"}>{item.icon}</span>
@@ -83,19 +80,19 @@ export function FrontdeskSidebar({
         </nav>
       </div>
 
-      <div className="shrink-0 lg:mt-auto lg:w-full">
+      <div className="shrink-0 lg:mt-auto lg:w-full lg:border-t lg:border-stone-200 lg:pt-3">
         <button
           type="button"
           aria-label="ログアウト"
           title="ログアウト"
-          className="flex h-12 w-12 items-center justify-center rounded-[16px] text-stone-500 transition hover:bg-white hover:text-stone-900 lg:w-full lg:justify-start lg:gap-2 lg:px-4"
+          className="flex h-11 w-11 items-center justify-center rounded-[10px] border border-transparent text-stone-500 transition hover:border-stone-200 hover:bg-white hover:text-stone-900 lg:h-9 lg:w-full lg:justify-start lg:gap-2 lg:px-3"
           onClick={onLogout}
         >
           <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 fill-none" stroke="currentColor" strokeWidth="1.8">
             <path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" />
             <path d="M16 17l5-5-5-5M21 12H10" />
           </svg>
-          <span className="hidden text-xs font-semibold lg:inline">ログアウト</span>
+          <span className="hidden text-[12px] font-medium lg:inline">ログアウト</span>
         </button>
       </div>
     </aside>

@@ -27,7 +27,7 @@ export function FrontdeskShell({
 
   return (
     <div
-      className={`min-h-dvh text-stone-900 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] ${
+      className={`min-h-dvh text-stone-900 lg:grid lg:grid-cols-[188px_minmax(0,1fr)] ${
         useFixedLayout
           ? isMessenger
             ? "h-dvh overflow-hidden bg-[#f6ecea]"
