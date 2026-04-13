@@ -29,6 +29,8 @@ const initialState: AuthState = {
   error: null,
 };
 
+let authStateCache: AuthState = initialState;
+
 const LOCAL_MANUAL_LOGIN_KEY = "roomly-console:local-manual-login";
 
 function getLoginErrorMessage(error: unknown) {
@@ -48,7 +50,12 @@ function getLoginErrorMessage(error: unknown) {
 }
 
 export function useHotelAuth() {
-  const [state, setState] = useState<AuthState>(initialState);
+  const [state, setState] = useState<AuthState>(authStateCache);
+
+  function updateState(nextState: AuthState) {
+    authStateCache = nextState;
+    setState(nextState);
+  }
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -58,7 +65,7 @@ export function useHotelAuth() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         forceLogoutPending = false;
-        setState({
+        updateState({
           user: null,
           claims: null,
           isLoading: false,
@@ -107,7 +114,7 @@ export function useHotelAuth() {
           void syncUserProfile();
         }
 
-        setState({
+        updateState({
           user,
           claims: {
             hotel_id: hotelId,
@@ -117,7 +124,7 @@ export function useHotelAuth() {
           error: null,
         });
       } catch (error) {
-        setState({
+        updateState({
           user,
           claims: null,
           isLoading: false,

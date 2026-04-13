@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { FrontdeskAuthLoading } from "@/components/frontdesk/frontdesk-auth-loading";
@@ -644,7 +645,8 @@ export function FrontdeskConsole() {
 
               <div className={`border-t border-[#ecd2cf] bg-white px-4 sm:px-6 lg:px-6 ${compactMode ? "py-2.5" : "py-3"}`}>
                 <div className={`mb-2 ${selectedThread ? "block" : "hidden"}`}>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap gap-2">
                     {availableReplyTemplates.map((template) => (
                       <button
                         key={template.id}
@@ -658,6 +660,13 @@ export function FrontdeskConsole() {
                         {template.label}
                       </button>
                     ))}
+                    </div>
+                    <Link
+                      href="/settings#reply-templates"
+                      className="text-xs font-semibold text-[#ad2218] transition hover:opacity-80"
+                    >
+                      テンプレートを編集
+                    </Link>
                   </div>
                   {replyTemplatesState.error ? (
                     <p className="mt-2 text-xs text-rose-600">テンプレートの取得に失敗しました: {replyTemplatesState.error}</p>
@@ -683,15 +692,18 @@ export function FrontdeskConsole() {
                     disabled={!selectedThread || !hasConnectionContext || isPending || !draftMessage.trim()}
                     onClick={() =>
                       selectedThread &&
-                      void runAction(async () => {
-                        await sendFrontMessage(selectedThread.id, staffUserId, draftMessage);
-                        setDraftMessage("");
-                      }, `${resolveRoomLabel(
-                        selectedThread.room_id,
-                        selectedThread.room_number,
-                        selectedThread.room_display_name,
-                        roomDisplayNames,
-                      )} に返信しました`)
+                      (() => {
+                        setSelectedThreadId(selectedThread.id);
+                        void runAction(async () => {
+                          await sendFrontMessage(selectedThread.id, staffUserId, draftMessage);
+                          setDraftMessage("");
+                        }, `${resolveRoomLabel(
+                          selectedThread.room_id,
+                          selectedThread.room_number,
+                          selectedThread.room_display_name,
+                          roomDisplayNames,
+                        )} に返信しました`);
+                      })()
                     }
                   >
                     <span className="hidden sm:inline">送信</span>
