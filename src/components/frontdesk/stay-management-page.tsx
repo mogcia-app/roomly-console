@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
+import { FrontdeskAuthLoading } from "@/components/frontdesk/frontdesk-auth-loading";
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import { useHotelAdminRoomStatuses } from "@/hooks/useHotelAdminRoomStatuses";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
+import { useCompactModePreference } from "@/hooks/useFrontdeskPreferences";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { formatGuestLanguageLabel, SUPPORTED_GUEST_LANGUAGE_OPTIONS } from "@/lib/frontdesk/languages";
 import { formatDateTime, formatRoomLabel } from "@/lib/frontdesk/format";
@@ -106,6 +108,7 @@ export function FrontdeskStayManagementPage() {
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
   const [actionState, setActionState] = useState<ActionState>(null);
   const [isPending, startTransition] = useTransition();
+  const [compactMode] = useCompactModePreference();
 
   const role = claims?.role;
   const isAdmin = role === "hotel_admin";
@@ -159,6 +162,10 @@ export function FrontdeskStayManagementPage() {
       return nextDrafts;
     });
   }, [roomsQuery.rooms]);
+
+  if (authLoading) {
+    return <FrontdeskAuthLoading title="hotel_admin ログイン" />;
+  }
 
   if (!user) {
     return (
@@ -291,13 +298,14 @@ export function FrontdeskStayManagementPage() {
 
   return (
     <FrontdeskShell
+      compactMode={compactMode}
       fixedHeader
       pageSubtitle="部屋ごとの宿泊登録とチェックアウトにあわせて、客室QRの利用状態を管理します"
       pageTitle="客室滞在管理"
       onLogout={() => logout()}
       role={role}
     >
-      <div className="flex min-h-screen w-full flex-col gap-4 px-3 py-4 sm:px-4 lg:px-5">
+      <div className={`flex min-h-screen w-full flex-col px-3 sm:px-4 lg:px-5 ${compactMode ? "gap-3 py-3" : "gap-4 py-4"}`}>
         {!isAdmin ? (
           <div className="rounded-none border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             この画面には `hotel_admin` 権限が必要です 現在の role: {role ?? "未設定"}

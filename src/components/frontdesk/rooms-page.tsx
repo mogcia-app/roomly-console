@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
+import { FrontdeskAuthLoading } from "@/components/frontdesk/frontdesk-auth-loading";
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import { useHotelAdminRooms } from "@/hooks/useHotelAdminRooms";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
+import { useCompactModePreference } from "@/hooks/useFrontdeskPreferences";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { formatRoomLabel } from "@/lib/frontdesk/format";
 import type { RoomRecord } from "@/lib/frontdesk/types";
@@ -39,6 +41,7 @@ export function FrontdeskRoomsPage() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [actionState, setActionState] = useState<ActionState>(null);
   const [isPending, startTransition] = useTransition();
+  const [compactMode] = useCompactModePreference();
 
   const role = claims?.role;
   const isAdmin = role === "hotel_admin";
@@ -63,6 +66,10 @@ export function FrontdeskRoomsPage() {
   }, [roomsQuery.rooms]);
 
   const sortedRooms = useMemo(() => roomsQuery.rooms, [roomsQuery.rooms]);
+
+  if (authLoading) {
+    return <FrontdeskAuthLoading title="管理画面ログイン" />;
+  }
 
   if (!user) {
     return (
@@ -109,13 +116,14 @@ export function FrontdeskRoomsPage() {
 
   return (
     <FrontdeskShell
+      compactMode={compactMode}
       fixedHeader
       pageSubtitle="客室の表示名を編集できます"
       pageTitle="客室表示名"
       onLogout={() => logout()}
       role={role}
     >
-      <div className="px-4 py-5 sm:px-6 lg:px-8">
+      <div className={`px-4 sm:px-6 lg:px-8 ${compactMode ? "py-4" : "py-5"}`}>
         {!isAdmin ? (
           <div className="rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             この画面は hotel_admin 権限のあるアカウントで利用できます

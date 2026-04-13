@@ -20,6 +20,107 @@ import type {
   StayRecord,
 } from "@/lib/frontdesk/types";
 
+function readString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function readNullableString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function readNumber(value: unknown) {
+  return typeof value === "number" ? value : 0;
+}
+
+function mapThreadRecord(docId: string, data: Record<string, unknown>): ChatThreadRecord {
+  return {
+    id: docId,
+    stay_id: readString(data.stay_id) || readString(data.stayId),
+    stayId: readString(data.stayId) || undefined,
+    room_id: readString(data.room_id) || readString(data.roomId),
+    roomId: readString(data.roomId) || undefined,
+    room_number: readString(data.room_number) || readString(data.roomNumber) || undefined,
+    room_display_name: readNullableString(data.room_display_name) ?? readNullableString(data.roomDisplayName),
+    hotel_id: readString(data.hotel_id) || readString(data.hotelId) || undefined,
+    mode: data.mode === "ai" ? "ai" : "human",
+    status:
+      data.status === "new" || data.status === "in_progress" || data.status === "resolved" ? data.status : "new",
+    category: readString(data.category) || undefined,
+    guest_language: readString(data.guest_language) || readString(data.guestLanguage) || undefined,
+    is_active:
+      typeof data.is_active === "boolean"
+        ? data.is_active
+        : typeof data.isActive === "boolean"
+          ? data.isActive
+          : undefined,
+    emergency: typeof data.emergency === "boolean" ? data.emergency : undefined,
+    event_type:
+      typeof data.event_type === "string"
+        ? (data.event_type as ChatThreadRecord["event_type"])
+        : typeof data.eventType === "string"
+          ? (data.eventType as ChatThreadRecord["event_type"])
+          : undefined,
+    created_at: (data.created_at as ChatThreadRecord["created_at"]) ?? (data.createdAt as ChatThreadRecord["created_at"]) ?? null,
+    updated_at: (data.updated_at as ChatThreadRecord["updated_at"]) ?? (data.updatedAt as ChatThreadRecord["updated_at"]) ?? null,
+    assigned_to: readString(data.assigned_to) || readString(data.assignedTo) || undefined,
+    assigned_at: (data.assigned_at as ChatThreadRecord["assigned_at"]) ?? (data.assignedAt as ChatThreadRecord["assigned_at"]) ?? null,
+    resolved_by: readString(data.resolved_by) || readString(data.resolvedBy) || undefined,
+    resolved_at: (data.resolved_at as ChatThreadRecord["resolved_at"]) ?? (data.resolvedAt as ChatThreadRecord["resolved_at"]) ?? null,
+    last_message_body: readString(data.last_message_body) || readString(data.lastMessageBody) || undefined,
+    last_message_at:
+      (data.last_message_at as ChatThreadRecord["last_message_at"]) ?? (data.lastMessageAt as ChatThreadRecord["last_message_at"]) ?? null,
+    last_message_sender:
+      data.last_message_sender === "guest" || data.last_message_sender === "ai" || data.last_message_sender === "front" || data.last_message_sender === "system"
+        ? data.last_message_sender
+        : data.lastMessageSender === "guest" || data.lastMessageSender === "ai" || data.lastMessageSender === "front" || data.lastMessageSender === "system"
+          ? data.lastMessageSender
+          : undefined,
+    unread_count_front: readNumber(data.unread_count_front ?? data.unreadCountFront),
+    unread_count_guest: readNumber(data.unread_count_guest ?? data.unreadCountGuest),
+    last_seen_by_front_at:
+      (data.last_seen_by_front_at as ChatThreadRecord["last_seen_by_front_at"]) ??
+      (data.lastSeenByFrontAt as ChatThreadRecord["last_seen_by_front_at"]) ??
+      null,
+  };
+}
+
+function mapMessageRecord(docId: string, data: Record<string, unknown>): MessageRecord {
+  return {
+    id: docId,
+    thread_id: readString(data.thread_id) || readString(data.threadId),
+    stay_id: readString(data.stay_id) || readString(data.stayId) || undefined,
+    room_id: readString(data.room_id) || readString(data.roomId) || undefined,
+    sender:
+      data.sender === "guest" || data.sender === "ai" || data.sender === "front" || data.sender === "system"
+        ? data.sender
+        : "system",
+    body: readString(data.body),
+    timestamp: (data.timestamp as MessageRecord["timestamp"]) ?? null,
+    original_body: readString(data.original_body) || readString(data.originalBody) || undefined,
+    original_language: readString(data.original_language) || readString(data.originalLanguage) || undefined,
+    translated_body_guest: readString(data.translated_body_guest) || readString(data.translatedBodyGuest) || undefined,
+    translated_language_guest:
+      readString(data.translated_language_guest) || readString(data.translatedLanguageGuest) || undefined,
+    translated_body_front: readString(data.translated_body_front) || readString(data.translatedBodyFront) || undefined,
+    translated_language_front:
+      readString(data.translated_language_front) || readString(data.translatedLanguageFront) || undefined,
+    translation_state:
+      data.translation_state === "not_required" || data.translation_state === "fallback" || data.translation_state === "ready"
+        ? data.translation_state
+        : data.translationState === "not_required" || data.translationState === "fallback" || data.translationState === "ready"
+          ? data.translationState
+          : undefined,
+    category: readString(data.category) || undefined,
+    priority: readString(data.priority) || undefined,
+    read_at_guest: (data.read_at_guest as MessageRecord["read_at_guest"]) ?? null,
+    readAtGuest: (data.readAtGuest as MessageRecord["readAtGuest"]) ?? null,
+    read_at: (data.read_at as MessageRecord["read_at"]) ?? null,
+    readAt: (data.readAt as MessageRecord["readAt"]) ?? null,
+    seen_at_guest: (data.seen_at_guest as MessageRecord["seen_at_guest"]) ?? null,
+    seenAtGuest: (data.seenAtGuest as MessageRecord["seenAtGuest"]) ?? null,
+  };
+}
+
 function mapStayRecord(docId: string, data: Record<string, unknown>): StayRecord {
   return {
     id: docId,
@@ -112,10 +213,7 @@ export function subscribeHumanThreads(
     query(collection(db, "chat_threads"), ...constraints),
     (snapshot) => {
       onData(
-        snapshot.docs.map((docSnapshot) => ({
-          id: docSnapshot.id,
-          ...(docSnapshot.data() as Omit<ChatThreadRecord, "id">),
-        })),
+        snapshot.docs.map((docSnapshot) => mapThreadRecord(docSnapshot.id, docSnapshot.data() as Record<string, unknown>)),
       );
     },
     onError,
@@ -138,10 +236,7 @@ export function subscribeRecentThreads(
     query(collection(db, "chat_threads"), ...constraints),
     (snapshot) => {
       onData(
-        snapshot.docs.map((docSnapshot) => ({
-          id: docSnapshot.id,
-          ...(docSnapshot.data() as Omit<ChatThreadRecord, "id">),
-        })),
+        snapshot.docs.map((docSnapshot) => mapThreadRecord(docSnapshot.id, docSnapshot.data() as Record<string, unknown>)),
       );
     },
     onError,
@@ -228,10 +323,7 @@ export function subscribeThreadMessages(
     query(collection(db, "messages"), ...constraints),
     (snapshot) => {
       onData(
-        snapshot.docs.map((docSnapshot) => ({
-          id: docSnapshot.id,
-          ...(docSnapshot.data() as Omit<MessageRecord, "id">),
-        })),
+        snapshot.docs.map((docSnapshot) => mapMessageRecord(docSnapshot.id, docSnapshot.data() as Record<string, unknown>)),
       );
     },
     onError,
@@ -361,6 +453,28 @@ export async function sendFrontMessage(
   if (!response.ok) {
     throw new Error(payload.error ?? "failed-to-send-front-message");
   }
+}
+
+export async function markGuestMessagesRead(threadId: string, messageIds?: string[]) {
+  const response = await fetch(`/api/admin/guest-threads/${threadId}/read`, {
+    method: "POST",
+    headers: await getAuthorizationHeaders(),
+    body: JSON.stringify(
+      messageIds && messageIds.length > 0
+        ? {
+            messageIds,
+          }
+        : {},
+    ),
+  });
+
+  const payload = (await response.json()) as { error?: string; ok?: boolean; updatedCount?: number };
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? "failed-to-mark-guest-messages-read");
+  }
+
+  return payload.updatedCount ?? 0;
 }
 
 export async function markThreadSeenByFront(threadId: string) {

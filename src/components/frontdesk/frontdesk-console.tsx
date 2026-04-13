@@ -3,9 +3,11 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
+import { FrontdeskAuthLoading } from "@/components/frontdesk/frontdesk-auth-loading";
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import {
   markThreadSeenByFront,
+  markGuestMessagesRead,
   resolveHumanThread,
   sendFrontMessage,
 } from "@/lib/frontdesk/firestore";
@@ -20,6 +22,8 @@ import { FRONTDESK_NOTIFICATION_ENABLED_KEY } from "@/lib/frontdesk/preferences"
 import type { ChatThreadRecord, MessageRecord } from "@/lib/frontdesk/types";
 import { useHotelRooms, useRecentThreads, useThreadMessages } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
+import { useCompactModePreference } from "@/hooks/useFrontdeskPreferences";
+import { useHotelReplyTemplates } from "@/hooks/useHotelReplyTemplates";
 
 const defaultHotelId = process.env.NEXT_PUBLIC_DEFAULT_HOTEL_ID ?? "";
 
@@ -178,13 +182,20 @@ export function FrontdeskConsole() {
   const [mobilePane, setMobilePane] = useState<MobilePane>(() =>
     requestedThreadId || requestedStayId ? "chat" : "list",
   );
+  const [selectedTemplate, setSelectedTemplate] = useState("");
   const [isPending, startUiTransition] = useTransition();
   const notifiedThreadIdsRef = useState(() => new Set<string>())[0];
+  const [compactMode] = useCompactModePreference();
 
   const role = claims?.role;
   const canOperate = role === "hotel_front" || role === "hotel_admin";
   const hotelId = useDeferredValue((claims?.hotel_id ?? defaultHotelId).trim());
   const staffUserId = useDeferredValue(user?.uid ?? "");
+  const replyTemplatesState = useHotelReplyTemplates(Boolean(user && canOperate));
+  const availableReplyTemplates = useMemo(
+    () => replyTemplatesState.templates.filter((template) => template.label.trim() && template.body.trim()),
+    [replyTemplatesState.templates],
+  );
   const recentThreads = useRecentThreads(hotelId);
   const hotelRooms = useHotelRooms(hotelId);
 
@@ -297,6 +308,45 @@ export function FrontdeskConsole() {
     void markThreadSeenByFront(selectedThread.id);
   }, [hasConnectionContext, selectedThread]);
 
+  useEffect(() => {
+    if (!selectedThread || !hasConnectionContext) {
+      return;
+    }
+
+    if ((selectedThread.unread_count_front ?? 0) <= 0) {
+      return;
+    }
+
+    const unreadGuestMessageIds = selectedThreadMessages
+      .filter((message) => {
+        if (message.sender !== "guest") {
+          return false;
+        }
+
+        return !(
+          message.read_at_guest ||
+          message.readAtGuest ||
+          message.read_at ||
+          message.readAt ||
+          message.seen_at_guest ||
+          message.seenAtGuest
+        );
+      })
+      .map((message) => message.id);
+
+    if (unreadGuestMessageIds.length === 0) {
+      return;
+    }
+
+    void markGuestMessagesRead(selectedThread.id, unreadGuestMessageIds).catch(() => {
+      // Ignore guest read sync failures here; the thread remains usable and can retry on next open.
+    });
+  }, [hasConnectionContext, selectedThread, selectedThreadMessages]);
+
+  if (authLoading) {
+    return <FrontdeskAuthLoading title="管理画面ログイン" />;
+  }
+
   if (!user) {
     return (
       <HotelAuthCard
@@ -336,6 +386,7 @@ export function FrontdeskConsole() {
 
   return (
     <FrontdeskShell
+      compactMode={compactMode}
       pageSubtitle="問い合わせ確認と返信をまとめて行えます"
       pageTitle="チャット"
       onLogout={() => logout()}
@@ -360,7 +411,7 @@ export function FrontdeskConsole() {
         </div>
       ) : null}
 
-      <div className="px-3 pb-3 pt-5 sm:px-6 lg:hidden">
+      <div className={`px-3 pb-3 sm:px-6 lg:hidden ${compactMode ? "pt-3" : "pt-5"}`}>
         <div className="flex rounded-[8px] bg-white p-1 shadow-[0_10px_24px_rgba(72,32,28,0.08)]">
           <button
             type="button"
@@ -384,7 +435,7 @@ export function FrontdeskConsole() {
         </div>
       </div>
 
-      <div className="grid min-h-[calc(100dvh-182px)] gap-3 px-3 pb-3 pt-2 sm:px-6 sm:pt-3 lg:min-h-[calc(100vh-88px)] lg:grid-cols-[360px_minmax(0,1fr)] lg:gap-4 lg:px-6 lg:pt-5 xl:grid-cols-[390px_minmax(0,1fr)]">
+      <div className={`grid min-h-[calc(100dvh-182px)] px-3 pb-3 sm:px-6 lg:min-h-[calc(100vh-88px)] lg:grid-cols-[360px_minmax(0,1fr)] lg:px-6 xl:grid-cols-[390px_minmax(0,1fr)] ${compactMode ? "gap-2 pt-1 sm:pt-2 lg:gap-3 lg:pt-3" : "gap-3 pt-2 sm:pt-3 lg:gap-4 lg:pt-5"}`}>
         <aside id="priority" className={`${mobilePane === "chat" ? "hidden" : "block"} lg:block`}>
           <div className="overflow-hidden rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] shadow-[0_12px_30px_rgba(72,32,28,0.06)]">
             <div className="border-b border-[#ecd2cf] bg-white px-4 py-4 sm:px-5 lg:px-5">
@@ -410,7 +461,7 @@ export function FrontdeskConsole() {
               </div>
             </div>
 
-            <div className="space-y-3 overflow-y-auto p-3 lg:max-h-[calc(100vh-180px)] lg:p-4">
+            <div className={`overflow-y-auto lg:max-h-[calc(100vh-180px)] ${compactMode ? "space-y-2 p-2.5 lg:p-3" : "space-y-3 p-3 lg:p-4"}`}>
               {recentThreads.isLoading ? <p className="text-sm text-stone-500">一覧を読み込み中です</p> : null}
               {recentThreads.error ? <p className="text-sm text-rose-700">{recentThreads.error}</p> : null}
 
@@ -499,7 +550,7 @@ export function FrontdeskConsole() {
             </div>
 
             <div className="flex min-h-[calc(100dvh-318px)] flex-col lg:min-h-[calc(100vh-210px)]">
-              <div className="flex-1 space-y-4 overflow-y-auto bg-white px-4 py-5 sm:px-5 lg:px-6 lg:py-6">
+              <div className={`flex-1 overflow-y-auto bg-white sm:px-5 lg:px-6 ${compactMode ? "space-y-3 px-4 py-4 lg:py-4" : "space-y-4 px-4 py-5 lg:py-6"}`}>
                 <div className="flex items-center justify-between gap-3 lg:hidden">
                   <button
                     type="button"
@@ -591,7 +642,32 @@ export function FrontdeskConsole() {
                 })}
               </div>
 
-              <div className="border-t border-[#ecd2cf] bg-white px-4 py-3 sm:px-6 lg:px-6">
+              <div className={`border-t border-[#ecd2cf] bg-white px-4 sm:px-6 lg:px-6 ${compactMode ? "py-2.5" : "py-3"}`}>
+                <div className={`mb-2 ${selectedThread ? "block" : "hidden"}`}>
+                  <div className="flex flex-wrap gap-2">
+                    {availableReplyTemplates.map((template) => (
+                      <button
+                        key={template.id}
+                        type="button"
+                        className="rounded-full border border-[#ecd2cf] bg-[#fff8f7] px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:border-[#d8aaa4] hover:bg-[#fff1ef]"
+                        onClick={() => {
+                          setSelectedTemplate(template.label);
+                          setDraftMessage((current) => (current.trim() ? `${current.trim()}\n${template.body}` : template.body));
+                        }}
+                      >
+                        {template.label}
+                      </button>
+                    ))}
+                  </div>
+                  {replyTemplatesState.error ? (
+                    <p className="mt-2 text-xs text-rose-600">テンプレートの取得に失敗しました: {replyTemplatesState.error}</p>
+                  ) : null}
+                  {availableReplyTemplates.length === 0 ? (
+                    <p className="mt-2 text-xs text-stone-500">設定画面で返信テンプレートを追加できます</p>
+                  ) : selectedTemplate ? (
+                    <p className="mt-2 text-xs text-stone-500">テンプレ: {selectedTemplate}</p>
+                  ) : null}
+                </div>
                 <div className="flex items-end gap-3">
                   <textarea
                     rows={1}

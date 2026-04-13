@@ -5,6 +5,7 @@ import { FrontdeskSidebar } from "@/components/frontdesk/frontdesk-sidebar";
 
 type FrontdeskShellProps = {
   children: ReactNode;
+  compactMode?: boolean;
   fixedHeader?: boolean;
   pageSubtitle: string;
   pageTitle: string;
@@ -15,6 +16,7 @@ type FrontdeskShellProps = {
 
 export function FrontdeskShell({
   children,
+  compactMode = false,
   fixedHeader = false,
   pageSubtitle,
   pageTitle,
@@ -27,6 +29,7 @@ export function FrontdeskShell({
 
   return (
     <div
+      data-compact={compactMode ? "true" : "false"}
       className={`min-h-dvh text-stone-900 lg:grid lg:grid-cols-[188px_minmax(0,1fr)] ${
         useFixedLayout
           ? isMessenger
@@ -49,8 +52,8 @@ export function FrontdeskShell({
         <header
           className={`sticky top-0 z-20 backdrop-blur-xl ${
             isMessenger
-              ? "border-b border-[#d9b1ac] bg-[#ad2218] px-4 py-3 text-white sm:px-6 lg:px-8"
-              : "border-b border-stone-200 bg-white/85 px-4 py-4 sm:px-6 lg:px-8"
+              ? `border-b border-[#d9b1ac] bg-[#ad2218] text-white sm:px-6 lg:px-8 ${compactMode ? "px-4 py-2.5" : "px-4 py-3"}`
+              : `border-b border-stone-200 bg-white/85 sm:px-6 lg:px-8 ${compactMode ? "px-4 py-3" : "px-4 py-4"}`
           }`}
         >
           <div className="flex items-end justify-between gap-4">
@@ -63,7 +66,7 @@ export function FrontdeskShell({
                 {isMessenger ? "Roomly Chat Desk" : "Roomly Front Desk"}
               </p>
               <h2
-                className={`${isMessenger ? "mt-1 text-xl lg:text-2xl text-white" : "mt-1 text-2xl text-stone-950"} font-semibold tracking-tight`}
+                className={`${isMessenger ? `mt-1 text-white ${compactMode ? "text-lg lg:text-[1.65rem]" : "text-xl lg:text-2xl"}` : `mt-1 text-stone-950 ${compactMode ? "text-[1.65rem]" : "text-2xl"}`} font-semibold tracking-tight`}
               >
                 {pageTitle}
               </h2>

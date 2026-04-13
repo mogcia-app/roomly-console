@@ -59,6 +59,12 @@ export type MessageRecord = {
   translation_state?: TranslationState;
   category?: string;
   priority?: string;
+  read_at_guest?: FirestoreDate;
+  readAtGuest?: FirestoreDate;
+  read_at?: FirestoreDate;
+  readAt?: FirestoreDate;
+  seen_at_guest?: FirestoreDate;
+  seenAtGuest?: FirestoreDate;
 };
 
 export type InquiryHistoryItem = {

@@ -1,9 +1,16 @@
 import { getFirebaseAdminDb } from "@/lib/server/firebase-admin";
 import {
+  OPERATIONS_INFO_KEYS,
   createEmptyOperationsInfo,
   type OperationsInfoEntry,
+  type OperationsInfoKey,
   type OperationsInfoRecord,
 } from "@/lib/frontdesk/operations-info";
+import {
+  DEFAULT_REPLY_TEMPLATES,
+  normalizeReplyTemplatesInput,
+  type FrontdeskReplyTemplate,
+} from "@/lib/frontdesk/reply-templates";
 
 function normalizeEntryArray(value: unknown): OperationsInfoEntry[] {
   if (Array.isArray(value)) {
@@ -110,3 +117,94 @@ export async function getOperationsInfoByHotelId(hotelId: string): Promise<Opera
 
   return normalized;
 }
+
+export async function getReplyTemplatesByHotelId(hotelId: string): Promise<FrontdeskReplyTemplate[]> {
+  const sheetSnapshot = await getFirebaseAdminDb().collection("hearing_sheets").doc(hotelId).get();
+  const rawData = sheetSnapshot.data() ?? {};
+
+  return normalizeReplyTemplatesInput(
+    pickFirstValue(rawData, ["replyTemplates", "reply_templates"]) ?? DEFAULT_REPLY_TEMPLATES,
+  );
+}
+
+function normalizeEditableEntry(entry: unknown): OperationsInfoEntry | null {
+  if (entry === undefined) {
+    return null;
+  }
+
+  if (entry === null) {
+    return null;
+  }
+
+  if (typeof entry === "string") {
+    const trimmed = entry.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  if (typeof entry === "number" || typeof entry === "boolean") {
+    return entry;
+  }
+
+  if (typeof entry === "object" && !Array.isArray(entry)) {
+    const normalizedObject = Object.fromEntries(
+      Object.entries(entry as Record<string, unknown>).filter(([, value]) => value !== undefined),
+    );
+
+    return Object.keys(normalizedObject).length > 0 ? normalizedObject : null;
+  }
+
+  return null;
+}
+
+export function normalizeOperationsInfoInput(value: unknown): OperationsInfoRecord {
+  const normalized = createEmptyOperationsInfo();
+  const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+
+  for (const key of OPERATIONS_INFO_KEYS) {
+    const entries = Array.isArray(record[key]) ? record[key] : [];
+    normalized[key] = entries
+      .map((entry) => normalizeEditableEntry(entry))
+      .filter((entry): entry is OperationsInfoEntry => entry !== null);
+  }
+
+  return normalized;
+}
+
+export async function saveOperationsInfoByHotelId(params: {
+  hotelId: string;
+  operationsInfo: OperationsInfoRecord;
+  updatedBy: string;
+}) {
+  const docRef = getFirebaseAdminDb().collection("hearing_sheets").doc(params.hotelId);
+  const payload = Object.fromEntries(
+    OPERATIONS_INFO_KEYS.map((key: OperationsInfoKey) => [key, params.operationsInfo[key]]),
+  );
+
+  await docRef.set(
+    {
+      ...payload,
+      updated_at: new Date().toISOString(),
+      updated_by: params.updatedBy,
+    },
+    { merge: true },
+  );
+}
+
+export async function saveReplyTemplatesByHotelId(params: {
+  hotelId: string;
+  replyTemplates: FrontdeskReplyTemplate[];
+  updatedBy: string;
+}) {
+  const docRef = getFirebaseAdminDb().collection("hearing_sheets").doc(params.hotelId);
+
+  await docRef.set(
+    {
+      replyTemplates: params.replyTemplates,
+      updated_at: new Date().toISOString(),
+      updated_by: params.updatedBy,
+    },
+    { merge: true },
+  );
+}
+
+export { normalizeReplyTemplatesInput };
