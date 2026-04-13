@@ -106,6 +106,7 @@ export function FrontdeskStayManagementPage() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [checkInDrafts, setCheckInDrafts] = useState<Record<string, CheckInDraft>>({});
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | RoomStatusRecord["status"]>("all");
   const [actionState, setActionState] = useState<ActionState>(null);
   const [isPending, startTransition] = useTransition();
   const [compactMode] = useCompactModePreference();
@@ -116,11 +117,16 @@ export function FrontdeskStayManagementPage() {
   const sortedRooms = useMemo(() => roomsQuery.rooms, [roomsQuery.rooms]);
   const summary = useMemo(
     () => ({
+      total: sortedRooms.length,
       vacant: sortedRooms.filter((item) => item.status === "vacant").length,
       occupied: sortedRooms.filter((item) => item.status === "occupied").length,
       conflict: sortedRooms.filter((item) => item.status === "conflict").length,
     }),
     [sortedRooms],
+  );
+  const filteredRooms = useMemo(
+    () => (statusFilter === "all" ? sortedRooms : sortedRooms.filter((item) => item.status === statusFilter)),
+    [sortedRooms, statusFilter],
   );
 
   useEffect(() => {
@@ -300,21 +306,21 @@ export function FrontdeskStayManagementPage() {
     <FrontdeskShell
       compactMode={compactMode}
       fixedHeader
-      pageSubtitle="部屋ごとの宿泊登録とチェックアウトにあわせて、客室QRの利用状態を管理します"
-      pageTitle="客室滞在管理"
+      pageSubtitle="客室ごとの滞在状況、チェックイン、チェックアウトを一覧で管理できます"
+      pageTitle="滞在管理"
       onLogout={() => logout()}
       role={role}
     >
-      <div className={`flex min-h-screen w-full flex-col px-3 sm:px-4 lg:px-5 ${compactMode ? "gap-3 py-3" : "gap-4 py-4"}`}>
+      <div className={`px-4 py-5 sm:px-6 lg:px-8 ${compactMode ? "space-y-4" : "space-y-5"}`}>
         {!isAdmin ? (
-          <div className="rounded-none border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             この画面には `hotel_admin` 権限が必要です 現在の role: {role ?? "未設定"}
           </div>
         ) : null}
 
         {actionState ? (
           <div
-            className={`rounded-none border px-4 py-3 text-sm ${
+            className={`rounded-[10px] border px-4 py-3 text-sm ${
               actionState.kind === "success"
                 ? "border-[#e7c0bb] bg-[#fff1ef] text-[#ad2218]"
                 : "border-rose-200 bg-rose-50 text-rose-900"
@@ -324,119 +330,129 @@ export function FrontdeskStayManagementPage() {
           </div>
         ) : null}
 
-        <section className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-none border border-stone-200 bg-white px-4 py-4 shadow-sm">
-            <p className="text-xs font-medium text-stone-500">空室</p>
-            <p className="mt-1 text-2xl font-semibold text-stone-950">{summary.vacant}</p>
-          </div>
-          <div className="rounded-none border border-stone-200 bg-white px-4 py-4 shadow-sm">
-            <p className="text-xs font-medium text-stone-500">滞在中</p>
-            <p className="mt-1 text-2xl font-semibold text-stone-950">{summary.occupied}</p>
-          </div>
-          <div className="rounded-none border border-stone-200 bg-white px-4 py-4 shadow-sm">
-            <p className="text-xs font-medium text-stone-500">要確認</p>
-            <p className="mt-1 text-2xl font-semibold text-stone-950">{summary.conflict}</p>
-          </div>
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: "総客室", value: summary.total, tone: "bg-white" },
+            { label: "滞在中", value: summary.occupied, tone: "bg-emerald-50" },
+            { label: "要確認", value: summary.conflict, tone: "bg-amber-50" },
+            { label: "空室", value: summary.vacant, tone: "bg-stone-100" },
+          ].map((item) => (
+            <article
+              key={item.label}
+              className={`rounded-[10px] border border-[#ecd2cf] ${item.tone} px-5 py-5 shadow-[0_12px_30px_rgba(72,32,28,0.06)]`}
+            >
+              <p className="text-xs uppercase tracking-[0.16em] text-stone-500">{item.label}</p>
+              <p className="mt-3 text-3xl font-semibold text-stone-950">{item.value}</p>
+            </article>
+          ))}
         </section>
 
-        <section className="rounded-none border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 pb-4">
-            <div>
-              <h2 className="text-lg font-semibold text-stone-950">客室一覧</h2>
-              <p className="text-sm text-stone-500">部屋を宿泊登録すると客室QRが使えるようになり、チェックアウトすると使えなくなります</p>
+        <section className="overflow-hidden rounded-[10px] border border-[#ecd2cf] bg-[#fff8f7] shadow-[0_12px_30px_rgba(72,32,28,0.06)]">
+          <div className="border-b border-[#ecd2cf] bg-white px-5 py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ad2218]">Stay Overview</p>
+                <h3 className="mt-2 text-xl font-semibold text-stone-950">客室ボード</h3>
+                <p className="mt-2 text-sm leading-6 text-stone-500">
+                  客室ごとの滞在状況、ゲスト情報、運用メモを一覧で確認しながら対応できます
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: "all", label: "すべて" },
+                  { key: "occupied", label: "滞在中" },
+                  { key: "conflict", label: "要確認" },
+                  { key: "vacant", label: "空室" },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
+                      statusFilter === item.key
+                        ? "bg-[#ad2218] text-white"
+                        : "border border-[#ecd2cf] bg-[#fff8f7] text-stone-600"
+                    }`}
+                    onClick={() => setStatusFilter(item.key as "all" | RoomStatusRecord["status"])}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="rounded-full border border-[#ecd2cf] bg-white px-3 py-2 text-sm text-stone-600 transition hover:bg-[#fff8f7]"
+                  onClick={() => void roomsQuery.refresh()}
+                >
+                  再読込
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              className="rounded-none border border-stone-200 px-3 py-2 text-sm text-stone-600 transition hover:bg-stone-50"
-              onClick={() => void roomsQuery.refresh()}
-            >
-              再読込
-            </button>
           </div>
 
-          {roomsQuery.error ? <p className="mb-4 text-sm text-rose-700">{roomsQuery.error}</p> : null}
-          {roomsQuery.isLoading ? <p className="text-sm text-stone-500">客室一覧を読み込み中です</p> : null}
+          <div className="p-4">
+            {roomsQuery.error ? <p className="mb-4 text-sm text-rose-700">{roomsQuery.error}</p> : null}
+            {roomsQuery.isLoading ? <p className="text-sm text-stone-500">客室一覧を読み込み中です</p> : null}
 
-          <div className="space-y-3">
-            {sortedRooms.map((item) => {
-              const room = item.room;
-              const activeStay = item.active_stay ?? null;
-              const draftValue = drafts[room.id] ?? room.display_name ?? "";
-              const normalizedDraft = draftValue.trim();
-              const normalizedCurrent = room.display_name?.trim() ?? "";
-              const isDirty = normalizedDraft !== normalizedCurrent;
-              const checkInDraft = checkInDrafts[room.id] ?? emptyCheckInDraft;
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {filteredRooms.map((item) => {
+                const room = item.room;
+                const activeStay = item.active_stay ?? null;
+                const draftValue = drafts[room.id] ?? room.display_name ?? "";
+                const normalizedDraft = draftValue.trim();
+                const normalizedCurrent = room.display_name?.trim() ?? "";
+                const isDirty = normalizedDraft !== normalizedCurrent;
+                const checkInDraft = checkInDrafts[room.id] ?? emptyCheckInDraft;
 
-              return (
-                <article key={room.id} className="rounded-none border border-stone-200 bg-stone-50/70 p-4">
+                return (
+                  <article key={room.id} className="rounded-[10px] border border-[#ecd2cf] bg-white p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold text-stone-950">{room.room_number}</h3>
-                        <span className={`rounded-none px-2.5 py-1 text-xs font-semibold ${occupancyTone(item.status)}`}>
+                        <p className="text-xs uppercase tracking-[0.16em] text-stone-400">Room {room.room_number}</p>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <h3 className="text-lg font-semibold text-stone-950">
+                          {draftValue.trim() || formatRoomLabel(room.room_id, room.room_number, room.display_name)}
+                        </h3>
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${occupancyTone(item.status)}`}>
                           {occupancyLabel(item.status)}
                         </span>
-                        {room.floor ? (
-                          <span className="rounded-none bg-white px-2.5 py-1 text-xs text-stone-500">{room.floor}階</span>
-                        ) : null}
                       </div>
-                      {room.display_name?.trim() ? (
-                        <p className="mt-1 text-sm text-stone-500">
-                          {formatRoomLabel(room.room_id, room.room_number, room.display_name)}
-                        </p>
-                      ) : null}
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="rounded-none border border-stone-200 bg-white px-2 py-1 text-[11px] text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:bg-stone-100"
-                        disabled={!isAdmin || isPending}
-                        onClick={() => setExpandedRoomId((current) => (current === room.id ? null : room.id))}
-                      >
-                        宿泊登録
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-none border border-stone-200 bg-white px-2 py-1 text-[11px] text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:bg-stone-100"
-                        disabled={!isAdmin || isPending}
-                        onClick={() => void handleCheckOut(item)}
-                      >
-                        チェックアウト
-                      </button>
-                    </div>
+                    {room.floor ? <span className="text-xs text-stone-400">{room.floor}階</span> : null}
                   </div>
 
-                  <dl className="mt-4 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                  <dl className="mt-4 grid gap-3 text-sm">
                     <div>
-                      <dt className="text-xs text-stone-400">チェックイン</dt>
-                      <dd className="mt-1 text-stone-700">{formatDateTime(activeStay?.check_in_at)}</dd>
+                      <dt className="text-stone-400">ゲスト</dt>
+                      <dd className="mt-1 font-medium text-stone-900">{infoValue(activeStay?.guest_name)}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs text-stone-400">予定チェックアウト</dt>
-                      <dd className="mt-1 text-stone-700">{formatDateTime(activeStay?.scheduled_check_out_at)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-stone-400">宿泊人数</dt>
-                      <dd className="mt-1 text-stone-700">{infoValue(activeStay?.guest_count)}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-stone-400">使用言語</dt>
+                      <dt className="text-stone-400">言語 / 予定</dt>
                       <dd className="mt-1 text-stone-700">
-                        {activeStay?.guest_language ? formatGuestLanguageLabel(activeStay.guest_language) : "-"}
+                        {activeStay?.guest_language ? formatGuestLanguageLabel(activeStay.guest_language) : "-"} /{" "}
+                        {activeStay?.scheduled_check_out_at ? formatDateTime(activeStay.scheduled_check_out_at) : "未設定"}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs text-stone-400">ゲスト名</dt>
-                      <dd className="mt-1 text-stone-700">{infoValue(activeStay?.guest_name)}</dd>
+                      <dt className="text-stone-400">運用メモ</dt>
+                      <dd className="mt-1 leading-6 text-stone-700">
+                        {activeStay?.notes?.trim()
+                          ? activeStay.notes
+                          : item.status === "vacant"
+                            ? "現在滞在中のゲストはいません"
+                            : item.status === "conflict"
+                              ? "滞在データが複数あるため、内容の確認が必要です"
+                              : `チェックイン ${formatDateTime(activeStay?.check_in_at)} / 宿泊人数 ${infoValue(activeStay?.guest_count)}`}
+                      </dd>
                     </div>
                   </dl>
 
-                  <div className="mt-4 grid grid-cols-[minmax(0,1fr)_56px] items-end gap-2">
+                  <div className="mt-4 grid grid-cols-[minmax(0,1fr)_64px] items-end gap-2">
                     <label className="grid gap-1.5 text-sm">
                       <span className="text-stone-500">表示名</span>
                       <input
-                        className="h-7 rounded-none border border-stone-200 bg-white px-3 py-0 text-sm outline-none transition focus:border-stone-400"
+                        className="rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-2.5 text-sm outline-none transition focus:border-[#ad2218]"
                         value={draftValue}
                         onChange={(event) =>
                           setDrafts((current) => ({
@@ -449,7 +465,7 @@ export function FrontdeskStayManagementPage() {
                     </label>
                     <button
                       type="button"
-                      className="h-7 w-14 rounded-none border border-stone-200 bg-white px-1 py-0 text-[10px] leading-none text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:bg-stone-100"
+                      className="rounded-[8px] border border-[#ecd2cf] bg-white px-2 py-2.5 text-xs font-semibold text-stone-700 transition hover:bg-[#fff8f7] disabled:cursor-not-allowed disabled:bg-stone-100"
                       disabled={!isAdmin || isPending || !isDirty}
                       onClick={() => void handleSave(room)}
                     >
@@ -457,14 +473,45 @@ export function FrontdeskStayManagementPage() {
                     </button>
                   </div>
 
-                  {item.status === "conflict" ? (
-                    <p className="mt-4 rounded-none border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                      active stay が複数あります。最新 1 件に寄せず、要確認として扱っています。
-                    </p>
-                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {item.status === "conflict" ? (
+                      <span className="rounded-full border border-[#ecd2cf] bg-[#fff8f7] px-2.5 py-1 text-xs font-medium text-stone-700">
+                        要確認
+                      </span>
+                    ) : null}
+                    {activeStay?.guest_count ? (
+                      <span className="rounded-full border border-[#ecd2cf] bg-[#fff8f7] px-2.5 py-1 text-xs font-medium text-stone-700">
+                        {activeStay.guest_count}名
+                      </span>
+                    ) : null}
+                    {activeStay?.guest_language ? (
+                      <span className="rounded-full border border-[#ecd2cf] bg-[#fff8f7] px-2.5 py-1 text-xs font-medium text-stone-700">
+                        {formatGuestLanguageLabel(activeStay.guest_language)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2 text-xs font-semibold text-stone-700 transition hover:bg-[#fff8f7] disabled:cursor-not-allowed disabled:bg-stone-100"
+                      disabled={!isAdmin || isPending}
+                      onClick={() => setExpandedRoomId((current) => (current === room.id ? null : room.id))}
+                    >
+                      {expandedRoomId === room.id ? "入力を閉じる" : "宿泊登録"}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2 text-xs font-semibold text-stone-700 transition hover:bg-[#fff8f7] disabled:cursor-not-allowed disabled:bg-stone-100"
+                      disabled={!isAdmin || isPending || !activeStay}
+                      onClick={() => void handleCheckOut(item)}
+                    >
+                      チェックアウト
+                    </button>
+                  </div>
 
                   {expandedRoomId === room.id ? (
-                    <div className="mt-4 grid gap-3 rounded-none border border-stone-200 bg-white p-4 lg:grid-cols-2">
+                    <div className="mt-4 grid gap-3 rounded-[10px] border border-[#ecd2cf] bg-[#fff8f7] p-4 lg:grid-cols-2">
                       <div className="lg:col-span-2">
                         <h4 className="text-sm font-semibold text-stone-900">宿泊登録</h4>
                         <p className="mt-1 text-xs text-stone-500">必要な項目を入力して、この部屋の宿泊情報を登録します。</p>
@@ -472,7 +519,7 @@ export function FrontdeskStayManagementPage() {
                       <label className="grid gap-2 text-sm">
                         <span>宿泊人数</span>
                         <input
-                          className="rounded-none border border-stone-200 px-3 py-2.5 outline-none transition focus:border-stone-400"
+                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
                           inputMode="numeric"
                           value={checkInDraft.guestCount}
                           onChange={(event) =>
@@ -489,7 +536,7 @@ export function FrontdeskStayManagementPage() {
                       <label className="grid gap-2 text-sm">
                         <span>使用言語</span>
                         <select
-                          className="rounded-none border border-stone-200 bg-white px-3 py-2.5 outline-none transition focus:border-stone-400"
+                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
                           value={checkInDraft.guestLanguage}
                           onChange={(event) =>
                             setCheckInDrafts((current) => ({
@@ -511,7 +558,7 @@ export function FrontdeskStayManagementPage() {
                       <label className="grid gap-2 text-sm">
                         <span>チェックイン時刻</span>
                         <input
-                          className="rounded-none border border-stone-200 px-3 py-2.5 outline-none transition focus:border-stone-400"
+                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
                           type="datetime-local"
                           value={checkInDraft.checkInAt}
                           onChange={(event) =>
@@ -528,7 +575,7 @@ export function FrontdeskStayManagementPage() {
                       <label className="grid gap-2 text-sm">
                         <span>予定チェックアウト時刻</span>
                         <input
-                          className="rounded-none border border-stone-200 px-3 py-2.5 outline-none transition focus:border-stone-400"
+                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
                           type="datetime-local"
                           value={checkInDraft.scheduledCheckOutAt}
                           onChange={(event) =>
@@ -545,7 +592,7 @@ export function FrontdeskStayManagementPage() {
                       <label className="grid gap-2 text-sm">
                         <span>ゲスト名</span>
                         <input
-                          className="rounded-none border border-stone-200 px-3 py-2.5 outline-none transition focus:border-stone-400"
+                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
                           value={checkInDraft.guestName}
                           onChange={(event) =>
                             setCheckInDrafts((current) => ({
@@ -562,7 +609,7 @@ export function FrontdeskStayManagementPage() {
                       <label className="grid gap-2 text-sm lg:col-span-2">
                         <span>メモ</span>
                         <input
-                          className="rounded-none border border-stone-200 px-3 py-2.5 outline-none transition focus:border-stone-400"
+                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
                           value={checkInDraft.notes}
                           onChange={(event) =>
                             setCheckInDrafts((current) => ({
@@ -580,14 +627,14 @@ export function FrontdeskStayManagementPage() {
                       <div className="flex items-center justify-end gap-2 lg:col-span-2">
                         <button
                           type="button"
-                          className="rounded-none border border-stone-200 px-4 py-2 text-sm text-stone-600 transition hover:bg-stone-50"
+                          className="rounded-[8px] border border-[#ecd2cf] px-4 py-2 text-sm text-stone-600 transition hover:bg-white"
                           onClick={() => setExpandedRoomId(null)}
                         >
                           閉じる
                         </button>
                         <button
                           type="button"
-                          className="rounded-none bg-stone-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+                          className="rounded-[8px] bg-[#ad2218] px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300"
                           disabled={!isAdmin || isPending}
                           onClick={() => void handleCheckIn(item)}
                         >
@@ -596,15 +643,16 @@ export function FrontdeskStayManagementPage() {
                       </div>
                     </div>
                   ) : null}
-                </article>
-              );
-            })}
+                  </article>
+                );
+              })}
 
-            {!roomsQuery.isLoading && sortedRooms.length === 0 ? (
-              <p className="rounded-none border border-dashed border-stone-200 bg-stone-50 px-4 py-6 text-sm text-stone-500">
-                客室データがまだありません
-              </p>
-            ) : null}
+              {!roomsQuery.isLoading && filteredRooms.length === 0 ? (
+                <p className="rounded-[10px] border border-dashed border-[#ecd2cf] bg-white px-4 py-6 text-sm text-stone-500 md:col-span-2 xl:col-span-3">
+                  客室データがまだありません
+                </p>
+              ) : null}
+            </div>
           </div>
         </section>
       </div>
