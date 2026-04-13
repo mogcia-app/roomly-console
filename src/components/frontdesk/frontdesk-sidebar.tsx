@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { RoomlyWordmark } from "@/components/brand/roomly-wordmark";
 
 type FrontdeskSidebarProps = {
   onLogout: () => void;
@@ -52,7 +53,10 @@ export function FrontdeskSidebar({
   return (
     <aside className="flex items-center justify-between gap-2 px-2.5 py-2 lg:h-full lg:flex-col lg:justify-start lg:gap-0 lg:px-3 lg:py-3">
       <div className="hidden lg:block lg:w-full">
-        <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Roomly Front Desk</p>
+        <div className="px-2">
+          <RoomlyWordmark className="text-lg font-semibold tracking-tight text-stone-950" dotClassName="text-[#ad2218]" />
+          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Front Desk</p>
+        </div>
       </div>
 
       <div className="min-w-0 flex-1 lg:mt-4 lg:w-full">

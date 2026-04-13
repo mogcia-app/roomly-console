@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { RoomlyWordmark } from "@/components/brand/roomly-wordmark";
 import { FrontdeskSidebar } from "@/components/frontdesk/frontdesk-sidebar";
 
 type FrontdeskShellProps = {
@@ -33,9 +34,9 @@ export function FrontdeskShell({
       className={`min-h-dvh text-stone-900 lg:grid lg:grid-cols-[188px_minmax(0,1fr)] ${
         useFixedLayout
           ? isMessenger
-            ? "h-dvh overflow-hidden bg-[#f6ecea]"
-            : "h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.9),_rgba(243,242,239,0.92)_38%,_rgba(233,228,219,0.95)_100%)]"
-          : "bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.9),_rgba(243,242,239,0.92)_38%,_rgba(233,228,219,0.95)_100%)]"
+            ? "h-dvh overflow-hidden bg-[#f5efe8]"
+            : "h-dvh overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.94),_rgba(245,239,232,0.95)_40%,_rgba(238,226,216,0.98)_100%)]"
+          : "bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.94),_rgba(245,239,232,0.95)_40%,_rgba(238,226,216,0.98)_100%)]"
       }`}
     >
       <div
@@ -63,12 +64,15 @@ export function FrontdeskShell({
                   isMessenger ? "text-white/72" : "text-[#ad2218]"
                 }`}
               >
-                {isMessenger ? "Roomly Chat Desk" : "Roomly Front Desk"}
+                {isMessenger ? "Chat Desk" : "Front Desk"}
               </p>
               <h2
                 className={`${isMessenger ? `mt-1 text-white ${compactMode ? "text-lg lg:text-[1.65rem]" : "text-xl lg:text-2xl"}` : `mt-1 text-stone-950 ${compactMode ? "text-[1.65rem]" : "text-2xl"}`} font-semibold tracking-tight`}
               >
-                {pageTitle}
+                <span className="inline-flex items-baseline gap-2">
+                  <RoomlyWordmark dotClassName={isMessenger ? "text-[#ffd8d3]" : "text-[#ad2218]"} />
+                  <span>{pageTitle}</span>
+                </span>
               </h2>
               <p
                 className={`${isMessenger ? "mt-1 text-xs sm:text-sm text-white/80" : "mt-1 text-sm text-stone-500"} max-w-2xl`}

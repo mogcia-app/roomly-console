@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Roomly Front Desk Console",
+  title: "Roomly.",
   description: "Hotel front operations console backed by shared Firestore data.",
 };
 
