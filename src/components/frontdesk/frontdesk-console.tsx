@@ -9,6 +9,7 @@ import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import {
   markThreadSeenByFront,
   markGuestMessagesRead,
+  requestTranslationPreview,
   resolveHumanThread,
   sendFrontMessage,
 } from "@/lib/frontdesk/firestore";
@@ -184,8 +185,10 @@ export function FrontdeskConsole() {
     requestedThreadId || requestedStayId ? "chat" : "list",
   );
   const [selectedTemplate, setSelectedTemplate] = useState("");
+  const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
   const [isPending, startUiTransition] = useTransition();
   const notifiedThreadIdsRef = useState(() => new Set<string>())[0];
+  const pendingFallbackTranslationIdsRef = useState(() => new Set<string>())[0];
   const [compactMode] = useCompactModePreference();
 
   const role = claims?.role;
@@ -271,6 +274,62 @@ export function FrontdeskConsole() {
         roomDisplayNames,
       )
     : "";
+
+  useEffect(() => {
+    if (!selectedThread || !hasConnectionContext) {
+      return;
+    }
+
+    const targets = selectedThreadMessages.filter((message) => {
+      if (message.sender !== "guest" || message.translation_state !== "fallback") {
+        return false;
+      }
+
+      if (fallbackTranslations[message.id]) {
+        return false;
+      }
+
+      if (pendingFallbackTranslationIdsRef.has(message.id)) {
+        return false;
+      }
+
+      return Boolean((message.original_body ?? message.body).trim());
+    });
+
+    if (targets.length === 0) {
+      return;
+    }
+
+    for (const message of targets) {
+      pendingFallbackTranslationIdsRef.add(message.id);
+
+      void requestTranslationPreview({
+        text: (message.original_body ?? message.body).trim(),
+        sourceLanguage: message.original_language || selectedThread.guest_language || "en",
+        targetLanguage: "ja",
+      })
+        .then((translatedText) => {
+          const trimmedTranslation = translatedText.trim();
+          if (!trimmedTranslation) {
+            return;
+          }
+
+          setFallbackTranslations((current) => {
+            if (current[message.id]) {
+              return current;
+            }
+
+            return { ...current, [message.id]: trimmedTranslation };
+          });
+        })
+        .catch(() => {
+          // Keep UI usable if re-translation fails.
+        })
+        .finally(() => {
+          pendingFallbackTranslationIdsRef.delete(message.id);
+        });
+    }
+  }, [fallbackTranslations, hasConnectionContext, pendingFallbackTranslationIdsRef, selectedThread, selectedThreadMessages]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -631,7 +690,9 @@ export function FrontdeskConsole() {
                             </div>
                           ) : null}
                           {meta.translationState === "fallback" ? (
-                            <div className="mt-2 text-xs font-semibold text-amber-700">翻訳確認推奨</div>
+                            <div className="mt-2 text-xs font-semibold text-amber-700">
+                              {fallbackTranslations[message.id] || "翻訳確認推奨"}
+                            </div>
                           ) : null}
                         </div>
                         <div className={`mt-1 px-1 text-[11px] text-stone-400 ${isFront ? "text-right" : "text-left"}`}>

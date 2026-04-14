@@ -455,6 +455,29 @@ export async function sendFrontMessage(
   }
 }
 
+export async function requestTranslationPreview(params: {
+  text: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+}) {
+  const response = await fetch("/api/frontdesk/translation-preview", {
+    method: "POST",
+    headers: await getAuthorizationHeaders(),
+    body: JSON.stringify(params),
+  });
+
+  const payload = (await response.json()) as {
+    error?: string;
+    translatedText?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? "failed-to-translate-preview");
+  }
+
+  return typeof payload.translatedText === "string" ? payload.translatedText : "";
+}
+
 export async function markGuestMessagesRead(threadId: string, messageIds?: string[]) {
   const response = await fetch(`/api/admin/guest-threads/${threadId}/read`, {
     method: "POST",

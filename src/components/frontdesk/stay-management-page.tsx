@@ -81,6 +81,30 @@ function infoValue(value: string | number | null | undefined) {
   return String(value);
 }
 
+function resolveCheckInValidation(draft: CheckInDraft) {
+  const guestCount = Number.parseInt(draft.guestCount, 10);
+  const hasValidGuestCount = Number.isFinite(guestCount) && guestCount > 0;
+  const checkInTime = Date.parse(draft.checkInAt);
+  const scheduledCheckOutTime = Date.parse(draft.scheduledCheckOutAt);
+  const hasValidCheckInAt = Number.isFinite(checkInTime);
+  const hasValidScheduledCheckOutAt = Number.isFinite(scheduledCheckOutTime);
+  const hasValidTimeOrder =
+    hasValidCheckInAt && hasValidScheduledCheckOutAt ? scheduledCheckOutTime > checkInTime : true;
+
+  return {
+    guestCount: hasValidGuestCount ? guestCount : null,
+    hasValidGuestCount,
+    hasValidCheckInAt,
+    hasValidScheduledCheckOutAt,
+    hasValidTimeOrder,
+    canSubmit:
+      hasValidGuestCount &&
+      hasValidCheckInAt &&
+      hasValidScheduledCheckOutAt &&
+      hasValidTimeOrder,
+  };
+}
+
 async function authorizedFetch(input: RequestInfo, init?: RequestInit) {
   const auth = getFirebaseAuth();
   const currentUser = auth.currentUser;
@@ -128,6 +152,12 @@ export function FrontdeskStayManagementPage() {
     () => (statusFilter === "all" ? sortedRooms : sortedRooms.filter((item) => item.status === statusFilter)),
     [sortedRooms, statusFilter],
   );
+  const expandedRoom = useMemo(
+    () => sortedRooms.find((item) => item.room.id === expandedRoomId) ?? null,
+    [expandedRoomId, sortedRooms],
+  );
+  const expandedRoomDraft = expandedRoom ? (checkInDrafts[expandedRoom.room.id] ?? emptyCheckInDraft) : emptyCheckInDraft;
+  const expandedRoomValidation = resolveCheckInValidation(expandedRoomDraft);
 
   useEffect(() => {
     if (!roomsQuery.rooms.length) {
@@ -219,7 +249,15 @@ export function FrontdeskStayManagementPage() {
   async function handleCheckIn(item: RoomStatusRecord) {
     const room = item.room;
     const draft = checkInDrafts[room.id] ?? emptyCheckInDraft;
-    const guestCount = Number.parseInt(draft.guestCount, 10);
+    const validation = resolveCheckInValidation(draft);
+
+    if (!validation.canSubmit || validation.guestCount === null) {
+      setActionState({
+        kind: "error",
+        message: "宿泊登録の入力内容を確認してください",
+      });
+      return;
+    }
 
     setActionState(null);
 
@@ -229,7 +267,7 @@ export function FrontdeskStayManagementPage() {
           method: "POST",
           body: JSON.stringify({
             roomId: room.room_id,
-            guestCount,
+            guestCount: validation.guestCount,
             guestLanguage: draft.guestLanguage,
             guestName: draft.guestName || undefined,
             notes: draft.notes || undefined,
@@ -400,7 +438,6 @@ export function FrontdeskStayManagementPage() {
                 const normalizedDraft = draftValue.trim();
                 const normalizedCurrent = room.display_name?.trim() ?? "";
                 const isDirty = normalizedDraft !== normalizedCurrent;
-                const checkInDraft = checkInDrafts[room.id] ?? emptyCheckInDraft;
 
                 return (
                   <article key={room.id} className="rounded-[10px] border border-[#ecd2cf] bg-white p-5">
@@ -428,7 +465,7 @@ export function FrontdeskStayManagementPage() {
                       <dd className="mt-1 font-medium text-stone-900">{infoValue(activeStay?.guest_name)}</dd>
                     </div>
                     <div>
-                      <dt className="text-stone-400">言語 / 予定</dt>
+                      <dt className="text-stone-400">言語 / チェックアウト</dt>
                       <dd className="mt-1 text-stone-700">
                         {activeStay?.guest_language ? formatGuestLanguageLabel(activeStay.guest_language) : "-"} /{" "}
                         {activeStay?.scheduled_check_out_at ? formatDateTime(activeStay.scheduled_check_out_at) : "未設定"}
@@ -496,9 +533,9 @@ export function FrontdeskStayManagementPage() {
                       type="button"
                       className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2 text-xs font-semibold text-stone-700 transition hover:bg-[#fff8f7] disabled:cursor-not-allowed disabled:bg-stone-100"
                       disabled={!isAdmin || isPending}
-                      onClick={() => setExpandedRoomId((current) => (current === room.id ? null : room.id))}
+                      onClick={() => setExpandedRoomId(room.id)}
                     >
-                      {expandedRoomId === room.id ? "入力を閉じる" : "宿泊登録"}
+                      宿泊登録
                     </button>
                     <button
                       type="button"
@@ -509,140 +546,6 @@ export function FrontdeskStayManagementPage() {
                       チェックアウト
                     </button>
                   </div>
-
-                  {expandedRoomId === room.id ? (
-                    <div className="mt-4 grid gap-3 rounded-[10px] border border-[#ecd2cf] bg-[#fff8f7] p-4 lg:grid-cols-2">
-                      <div className="lg:col-span-2">
-                        <h4 className="text-sm font-semibold text-stone-900">宿泊登録</h4>
-                        <p className="mt-1 text-xs text-stone-500">必要な項目を入力して、この部屋の宿泊情報を登録します。</p>
-                      </div>
-                      <label className="grid gap-2 text-sm">
-                        <span>宿泊人数</span>
-                        <input
-                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
-                          inputMode="numeric"
-                          value={checkInDraft.guestCount}
-                          onChange={(event) =>
-                            setCheckInDrafts((current) => ({
-                              ...current,
-                              [room.id]: {
-                                ...(current[room.id] ?? emptyCheckInDraft),
-                                guestCount: event.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className="grid gap-2 text-sm">
-                        <span>使用言語</span>
-                        <select
-                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
-                          value={checkInDraft.guestLanguage}
-                          onChange={(event) =>
-                            setCheckInDrafts((current) => ({
-                              ...current,
-                              [room.id]: {
-                                ...(current[room.id] ?? emptyCheckInDraft),
-                                guestLanguage: event.target.value,
-                              },
-                            }))
-                          }
-                        >
-                          {SUPPORTED_GUEST_LANGUAGE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="grid gap-2 text-sm">
-                        <span>チェックイン時刻</span>
-                        <input
-                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
-                          type="datetime-local"
-                          value={checkInDraft.checkInAt}
-                          onChange={(event) =>
-                            setCheckInDrafts((current) => ({
-                              ...current,
-                              [room.id]: {
-                                ...(current[room.id] ?? emptyCheckInDraft),
-                                checkInAt: event.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className="grid gap-2 text-sm">
-                        <span>予定チェックアウト時刻</span>
-                        <input
-                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
-                          type="datetime-local"
-                          value={checkInDraft.scheduledCheckOutAt}
-                          onChange={(event) =>
-                            setCheckInDrafts((current) => ({
-                              ...current,
-                              [room.id]: {
-                                ...(current[room.id] ?? emptyCheckInDraft),
-                                scheduledCheckOutAt: event.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className="grid gap-2 text-sm">
-                        <span>ゲスト名</span>
-                        <input
-                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
-                          value={checkInDraft.guestName}
-                          onChange={(event) =>
-                            setCheckInDrafts((current) => ({
-                              ...current,
-                              [room.id]: {
-                                ...(current[room.id] ?? emptyCheckInDraft),
-                                guestName: event.target.value,
-                              },
-                            }))
-                          }
-                          placeholder="Optional"
-                        />
-                      </label>
-                      <label className="grid gap-2 text-sm lg:col-span-2">
-                        <span>メモ</span>
-                        <input
-                          className="rounded-[8px] border border-[#ecd2cf] bg-white px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
-                          value={checkInDraft.notes}
-                          onChange={(event) =>
-                            setCheckInDrafts((current) => ({
-                              ...current,
-                              [room.id]: {
-                                ...(current[room.id] ?? emptyCheckInDraft),
-                                notes: event.target.value,
-                              },
-                            }))
-                          }
-                          placeholder="Optional"
-                        />
-                      </label>
-
-                      <div className="flex items-center justify-end gap-2 lg:col-span-2">
-                        <button
-                          type="button"
-                          className="rounded-[8px] border border-[#ecd2cf] px-4 py-2 text-sm text-stone-600 transition hover:bg-white"
-                          onClick={() => setExpandedRoomId(null)}
-                        >
-                          閉じる
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-[8px] bg-[#ad2218] px-4 py-2 text-sm font-medium text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300"
-                          disabled={!isAdmin || isPending}
-                          onClick={() => void handleCheckIn(item)}
-                        >
-                          この部屋を宿泊登録
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
                   </article>
                 );
               })}
@@ -653,6 +556,188 @@ export function FrontdeskStayManagementPage() {
                 </p>
               ) : null}
             </div>
+
+            {expandedRoom ? (
+              <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-6">
+                <button
+                  type="button"
+                  className="absolute inset-0 cursor-default"
+                  aria-label="モーダルを閉じる"
+                  onClick={() => setExpandedRoomId(null)}
+                />
+                <section className="relative z-10 w-full max-w-2xl rounded-t-2xl border border-[#ecd2cf] bg-white shadow-[0_30px_60px_rgba(20,14,10,0.24)] sm:rounded-2xl">
+                  <header className="border-b border-[#ecd2cf] px-5 py-4 sm:px-6">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ad2218]">Stay Registration</p>
+                    <h4 className="mt-1 text-lg font-semibold text-stone-950">
+                      {expandedRoom.room.room_number} の宿泊登録
+                    </h4>
+                    <p className="mt-1 text-xs text-stone-500">
+                      必須: 宿泊人数 / 使用言語 / チェックイン時刻 / 予定チェックアウト時刻
+                    </p>
+                  </header>
+
+                  <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 sm:px-6">
+                    <label className="grid gap-2 text-sm">
+                      <span>
+                        宿泊人数 <span className="text-[11px] text-rose-700">必須</span>
+                      </span>
+                      <input
+                        className="rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={expandedRoomDraft.guestCount}
+                        onChange={(event) =>
+                          setCheckInDrafts((current) => ({
+                            ...current,
+                            [expandedRoom.room.id]: {
+                              ...(current[expandedRoom.room.id] ?? emptyCheckInDraft),
+                              guestCount: event.target.value,
+                            },
+                          }))
+                        }
+                        placeholder="2"
+                      />
+                      {!expandedRoomValidation.hasValidGuestCount ? (
+                        <p className="text-xs text-rose-700">1 以上の人数を入力してください</p>
+                      ) : null}
+                    </label>
+
+                    <label className="grid gap-2 text-sm">
+                      <span>
+                        使用言語 <span className="text-[11px] text-rose-700">必須</span>
+                      </span>
+                      <select
+                        className="rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
+                        value={expandedRoomDraft.guestLanguage}
+                        onChange={(event) =>
+                          setCheckInDrafts((current) => ({
+                            ...current,
+                            [expandedRoom.room.id]: {
+                              ...(current[expandedRoom.room.id] ?? emptyCheckInDraft),
+                              guestLanguage: event.target.value,
+                            },
+                          }))
+                        }
+                      >
+                        {SUPPORTED_GUEST_LANGUAGE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="grid gap-2 text-sm">
+                      <span>
+                        チェックイン時刻 <span className="text-[11px] text-rose-700">必須</span>
+                      </span>
+                      <input
+                        className="rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
+                        type="datetime-local"
+                        value={expandedRoomDraft.checkInAt}
+                        onChange={(event) =>
+                          setCheckInDrafts((current) => ({
+                            ...current,
+                            [expandedRoom.room.id]: {
+                              ...(current[expandedRoom.room.id] ?? emptyCheckInDraft),
+                              checkInAt: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+
+                    <label className="grid gap-2 text-sm">
+                      <span>
+                        予定チェックアウト時刻 <span className="text-[11px] text-rose-700">必須</span>
+                      </span>
+                      <input
+                        className="rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
+                        type="datetime-local"
+                        value={expandedRoomDraft.scheduledCheckOutAt}
+                        onChange={(event) =>
+                          setCheckInDrafts((current) => ({
+                            ...current,
+                            [expandedRoom.room.id]: {
+                              ...(current[expandedRoom.room.id] ?? emptyCheckInDraft),
+                              scheduledCheckOutAt: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+
+                    {expandedRoomValidation.hasValidCheckInAt &&
+                    expandedRoomValidation.hasValidScheduledCheckOutAt &&
+                    !expandedRoomValidation.hasValidTimeOrder ? (
+                      <p className="text-xs text-rose-700 sm:col-span-2">
+                        チェックアウト時刻はチェックイン時刻より後にしてください
+                      </p>
+                    ) : null}
+
+                    <label className="grid gap-2 text-sm">
+                      <span>
+                        ゲスト名 <span className="text-[11px] text-stone-500">任意</span>
+                      </span>
+                      <input
+                        className="rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
+                        value={expandedRoomDraft.guestName}
+                        onChange={(event) =>
+                          setCheckInDrafts((current) => ({
+                            ...current,
+                            [expandedRoom.room.id]: {
+                              ...(current[expandedRoom.room.id] ?? emptyCheckInDraft),
+                              guestName: event.target.value,
+                            },
+                          }))
+                        }
+                        placeholder="例) Emily Carter"
+                      />
+                    </label>
+
+                    <label className="grid gap-2 text-sm sm:col-span-2">
+                      <span>
+                        メモ <span className="text-[11px] text-stone-500">任意</span>
+                      </span>
+                      <textarea
+                        className="rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-2.5 outline-none transition focus:border-[#ad2218]"
+                        rows={3}
+                        value={expandedRoomDraft.notes}
+                        onChange={(event) =>
+                          setCheckInDrafts((current) => ({
+                            ...current,
+                            [expandedRoom.room.id]: {
+                              ...(current[expandedRoom.room.id] ?? emptyCheckInDraft),
+                              notes: event.target.value,
+                            },
+                          }))
+                        }
+                        placeholder="到着予定が遅い、アレルギー対応など運用メモを入力"
+                      />
+                    </label>
+                  </div>
+
+                  <footer className="flex items-center justify-end gap-2 border-t border-[#ecd2cf] px-5 py-4 sm:px-6">
+                    <button
+                      type="button"
+                      className="rounded-[8px] border border-[#ecd2cf] px-4 py-2 text-sm text-stone-600 transition hover:bg-[#fff8f7]"
+                      onClick={() => setExpandedRoomId(null)}
+                    >
+                      閉じる
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-[8px] bg-[#ad2218] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300"
+                      disabled={!isAdmin || isPending || !expandedRoomValidation.canSubmit}
+                      onClick={() => void handleCheckIn(expandedRoom)}
+                    >
+                      この部屋を宿泊登録
+                    </button>
+                  </footer>
+                </section>
+              </div>
+            ) : null}
           </div>
         </section>
       </div>

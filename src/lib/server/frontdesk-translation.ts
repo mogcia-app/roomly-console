@@ -57,6 +57,55 @@ function parseStructuredOutput(payload: unknown) {
     }
   }
 
+  if (typeof payload === "object" && payload !== null && "output" in payload) {
+    const output = (payload as { output?: unknown }).output;
+
+    if (Array.isArray(output)) {
+      for (const item of output) {
+        if (!item || typeof item !== "object" || !("content" in item)) {
+          continue;
+        }
+
+        const content = (item as { content?: unknown }).content;
+        if (!Array.isArray(content)) {
+          continue;
+        }
+
+        for (const part of content) {
+          if (!part || typeof part !== "object") {
+            continue;
+          }
+
+          const text = (part as { text?: unknown }).text;
+          if (typeof text === "string" && text.trim()) {
+            return text;
+          }
+        }
+      }
+    }
+  }
+
+  return "";
+}
+
+function extractTranslatedText(outputText: string) {
+  const normalized = outputText.trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(normalized) as { translated_text?: unknown };
+
+    if (typeof parsed.translated_text === "string" && parsed.translated_text.trim()) {
+      return parsed.translated_text.trim();
+    }
+  } catch {
+    // In case providers return plain text despite requested schema, keep the text.
+    return normalized;
+  }
+
   return "";
 }
 
@@ -153,11 +202,16 @@ export async function translateText(params: TranslateTextParams): Promise<Transl
 
     const payload = (await response.json()) as unknown;
     const outputText = parseStructuredOutput(payload);
-    const parsed = outputText ? (JSON.parse(outputText) as { translated_text?: unknown }) : {};
-    const translatedText =
-      typeof parsed.translated_text === "string" && parsed.translated_text.trim()
-        ? parsed.translated_text.trim()
-        : text;
+    const translatedText = extractTranslatedText(outputText);
+
+    if (!translatedText) {
+      return {
+        text,
+        state: "fallback",
+        sourceLanguage,
+        targetLanguage,
+      };
+    }
 
     return {
       text: translatedText,
