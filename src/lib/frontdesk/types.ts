@@ -58,6 +58,8 @@ export type MessageRecord = {
   translated_language_front?: string;
   translation_state?: TranslationState;
   category?: string;
+  image_url?: string;
+  image_alt?: string;
   priority?: string;
   read_at_guest?: FirestoreDate;
   readAtGuest?: FirestoreDate;

@@ -111,6 +111,8 @@ function mapMessageRecord(docId: string, data: Record<string, unknown>): Message
           ? data.translationState
           : undefined,
     category: readString(data.category) || undefined,
+    image_url: readString(data.image_url) || readString(data.imageUrl) || undefined,
+    image_alt: readString(data.image_alt) || readString(data.imageAlt) || undefined,
     priority: readString(data.priority) || undefined,
     read_at_guest: (data.read_at_guest as MessageRecord["read_at_guest"]) ?? null,
     readAtGuest: (data.readAtGuest as MessageRecord["readAtGuest"]) ?? null,
@@ -228,7 +230,6 @@ export function subscribeRecentThreads(
   const db = getFirestoreDb();
   const constraints: QueryConstraint[] = [
     where("hotel_id", "==", hotelId),
-    where("mode", "==", "human"),
     orderBy("updated_at", "desc"),
   ];
 

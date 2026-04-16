@@ -85,3 +85,16 @@ export function useHotelActiveStays(hotelId: string) {
       ),
   });
 }
+
+export function useHotelStays(hotelId: string) {
+  const subscribe = useMemo(
+    () => (onData: Parameters<typeof subscribeHotelStays>[1], onError: Parameters<typeof subscribeHotelStays>[2]) =>
+      subscribeHotelStays(hotelId, onData, onError),
+    [hotelId],
+  );
+
+  return useRealtimeCollection({
+    enabled: Boolean(hotelId),
+    subscribe,
+  });
+}
