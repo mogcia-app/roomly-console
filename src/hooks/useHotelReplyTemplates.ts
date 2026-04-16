@@ -22,8 +22,8 @@ async function authorizedFetch(input: RequestInfo, init?: RequestInit) {
   return fetch(input, {
     ...init,
     headers: {
-      Authorization: `Bearer ${token}`,
       ...(init?.headers ?? {}),
+      Authorization: `Bearer ${token}`,
     },
   });
 }

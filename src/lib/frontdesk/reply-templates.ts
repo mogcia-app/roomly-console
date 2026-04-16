@@ -47,5 +47,5 @@ export function normalizeReplyTemplatesInput(value: unknown): FrontdeskReplyTemp
     })
     .filter((item): item is FrontdeskReplyTemplate => item !== null);
 
-  return normalized.length > 0 ? normalized : DEFAULT_REPLY_TEMPLATES;
+  return normalized;
 }
