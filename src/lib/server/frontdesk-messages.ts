@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
 import type { ChatThreadRecord } from "@/lib/frontdesk/types";
+import { normalizeGuestLanguage } from "@/lib/frontdesk/languages";
 import { getFirebaseAdminDb } from "@/lib/server/firebase-admin";
 import {
   buildTranslationPayload,
@@ -16,6 +17,8 @@ function buildMessagePayload(params: {
   stayId: string | null;
   roomId: string | null;
   translationPayload: ReturnType<typeof buildTranslationPayload>;
+  imageUrl?: string;
+  imageAlt?: string;
 }) {
   return {
     thread_id: params.threadId,
@@ -41,7 +44,39 @@ function buildMessagePayload(params: {
     translatedLanguageGuest: params.translationPayload.translated_language_guest,
     translation_state: params.translationPayload.translation_state,
     translationState: params.translationPayload.translation_state,
+    image_url: params.imageUrl ?? null,
+    imageUrl: params.imageUrl ?? null,
+    image_alt: params.imageAlt ?? null,
+    imageAlt: params.imageAlt ?? null,
   };
+}
+
+type SupportedTranslationKey = "en" | "zh-CN" | "zh-TW" | "ko" | "ja";
+
+type FrontDeskTranslations = Partial<Record<SupportedTranslationKey, string>>;
+
+function normalizeOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function resolveProvidedGuestTranslation(params: {
+  guestLanguage: string;
+  hotelLanguage: string;
+  translations?: FrontDeskTranslations;
+}) {
+  const normalizedGuestLanguage = normalizeGuestLanguage(params.guestLanguage);
+  const translations = params.translations ?? {};
+  const provided = normalizeOptionalString(translations[normalizedGuestLanguage]);
+
+  if (!provided) {
+    return null;
+  }
+
+  return {
+    text: provided,
+    targetLanguage: normalizedGuestLanguage,
+    state: normalizedGuestLanguage === params.hotelLanguage ? "not_required" : "ready",
+  } as const;
 }
 
 async function resolveGuestLanguage(thread: Omit<ChatThreadRecord, "id">) {
@@ -71,11 +106,16 @@ async function resolveGuestLanguage(thread: Omit<ChatThreadRecord, "id">) {
 export async function saveFrontDeskMessage(params: {
   threadId: string;
   hotelId: string;
-  staffUserId: string;
+  staffUserId?: string | null;
   body: string;
+  imageUrl?: string;
+  imageAlt?: string;
+  translations?: FrontDeskTranslations;
 }) {
   const adminDb = getFirebaseAdminDb();
   const trimmedBody = params.body.trim();
+  const imageUrl = normalizeOptionalString(params.imageUrl);
+  const imageAlt = normalizeOptionalString(params.imageAlt);
 
   if (!trimmedBody) {
     throw new Error("empty-message");
@@ -103,17 +143,24 @@ export async function saveFrontDeskMessage(params: {
     throw new Error("thread-resolved");
   }
 
-  if (thread.status === "in_progress" && thread.assigned_to && thread.assigned_to !== params.staffUserId) {
+  if (params.staffUserId && thread.status === "in_progress" && thread.assigned_to && thread.assigned_to !== params.staffUserId) {
     throw new Error("thread-assigned");
   }
 
   const hotelLanguage = resolveHotelOperationLanguage();
   const guestLanguage = await resolveGuestLanguage(thread);
-  const translation = await translateText({
-    sourceLanguage: hotelLanguage,
-    targetLanguage: guestLanguage,
-    text: trimmedBody,
+  const providedGuestTranslation = resolveProvidedGuestTranslation({
+    guestLanguage,
+    hotelLanguage,
+    translations: params.translations,
   });
+  const translation =
+    providedGuestTranslation ??
+    (await translateText({
+      sourceLanguage: hotelLanguage,
+      targetLanguage: guestLanguage,
+      text: trimmedBody,
+    }));
   const payload = buildTranslationPayload({
     body: trimmedBody,
     guestLanguage: translation.targetLanguage,
@@ -133,15 +180,13 @@ export async function saveFrontDeskMessage(params: {
         stayId,
         roomId,
         translationPayload: payload,
+        imageUrl,
+        imageAlt,
       }),
     );
 
-    transaction.update(threadRef, {
+    const threadUpdate: Record<string, unknown> = {
       status: "in_progress",
-      assigned_to: params.staffUserId,
-      assignedTo: params.staffUserId,
-      assigned_at: thread.assigned_at ?? FieldValue.serverTimestamp(),
-      assignedAt: thread.assigned_at ?? FieldValue.serverTimestamp(),
       guest_language: thread.guest_language ?? translation.targetLanguage,
       guestLanguage: thread.guest_language ?? translation.targetLanguage,
       last_message_body: payload.body,
@@ -156,7 +201,16 @@ export async function saveFrontDeskMessage(params: {
       unreadCountGuest: FieldValue.increment(1),
       updated_at: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (params.staffUserId) {
+      threadUpdate.assigned_to = params.staffUserId;
+      threadUpdate.assignedTo = params.staffUserId;
+      threadUpdate.assigned_at = thread.assigned_at ?? FieldValue.serverTimestamp();
+      threadUpdate.assignedAt = thread.assigned_at ?? FieldValue.serverTimestamp();
+    }
+
+    transaction.update(threadRef, threadUpdate);
   });
 
   return {
