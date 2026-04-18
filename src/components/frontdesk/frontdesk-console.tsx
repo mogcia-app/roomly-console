@@ -354,6 +354,7 @@ export function FrontdeskConsole() {
   );
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
+  const [pushDebugMessage, setPushDebugMessage] = useState<string | null>(null);
   const [isPending, startUiTransition] = useTransition();
   const notifiedThreadIdsRef = useState(() => new Set<string>())[0];
   const pendingFallbackTranslationIdsRef = useState(() => new Set<string>())[0];
@@ -670,10 +671,22 @@ export function FrontdeskConsole() {
           }),
         });
 
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          result?: { dispatched?: boolean; sentCount?: number; tokenCount?: number };
+        };
+
         if (!response.ok) {
+          setPushDebugMessage(`通知送信API失敗: ${payload.error ?? "unknown-error"}`);
           notifiedDispatchKeysRef.delete(dispatchKey);
+          return;
         }
+
+        setPushDebugMessage(
+          `通知送信API成功: dispatched=${payload.result?.dispatched ? "yes" : "no"} sent=${payload.result?.sentCount ?? 0}/${payload.result?.tokenCount ?? 0}`,
+        );
       }).catch(() => {
+        setPushDebugMessage("通知送信API呼び出し失敗");
         notifiedDispatchKeysRef.delete(dispatchKey);
       });
     }
@@ -827,6 +840,12 @@ export function FrontdeskConsole() {
               </p>
               {pushNotifications.error ? (
                 <p className="mt-2 text-xs text-rose-700">{pushNotifications.error}</p>
+              ) : null}
+              {pushNotifications.debugMessage ? (
+                <p className="mt-2 text-xs text-emerald-700">登録デバッグ: {pushNotifications.debugMessage}</p>
+              ) : null}
+              {pushDebugMessage ? (
+                <p className="mt-1 text-xs text-sky-700">送信デバッグ: {pushDebugMessage}</p>
               ) : null}
             </div>
             <div className="flex items-center gap-2">

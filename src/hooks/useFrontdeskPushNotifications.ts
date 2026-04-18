@@ -8,6 +8,7 @@ import { FRONTDESK_NOTIFICATION_ENABLED_KEY } from "@/lib/frontdesk/preferences"
 type PushStatus = {
   enable: () => Promise<void>;
   disable: () => Promise<void>;
+  debugMessage: string | null;
   error: string | null;
   isLoading: boolean;
   isSubscribed: boolean;
@@ -16,6 +17,18 @@ type PushStatus = {
 };
 
 type MessagingModule = typeof import("firebase/messaging");
+
+function resolveErrorText(error: unknown, stage: string) {
+  if (!(error instanceof Error)) {
+    return `${stage}: unknown-error`;
+  }
+
+  const firebaseLike = error as Error & { code?: string };
+  const code = typeof firebaseLike.code === "string" ? firebaseLike.code : "";
+  const detail = code ? `${code} / ${error.message}` : error.message;
+
+  return `${stage}: ${detail}`;
+}
 
 async function loadMessagingModule(): Promise<MessagingModule | null> {
   const messaging = await import("firebase/messaging");
@@ -45,6 +58,7 @@ export function useFrontdeskPushNotifications(params: {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugMessage, setDebugMessage] = useState<string | null>(null);
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">(() => {
     if (typeof window === "undefined" || !("Notification" in window)) {
       return "unsupported";
@@ -64,6 +78,8 @@ export function useFrontdeskPushNotifications(params: {
       throw new Error("missing-firebase-vapid-key");
     }
 
+    setDebugMessage(mode === "subscribe" ? "登録開始: messaging 初期化" : "解除開始: messaging 初期化");
+
     const messagingModule = await loadMessagingModule();
     if (!messagingModule) {
       setPermission("unsupported");
@@ -71,8 +87,10 @@ export function useFrontdeskPushNotifications(params: {
       throw new Error("push-not-supported");
     }
 
+    setDebugMessage(mode === "subscribe" ? "登録中: service worker 登録" : "解除中: service worker 登録");
     const registration = await registerServiceWorker();
     const messaging = messagingModule.getMessaging(getFirebaseApp());
+    setDebugMessage(mode === "subscribe" ? "登録中: FCM token 取得" : "解除中: FCM token 取得");
     const token =
       tokenRef.current ||
       (await messagingModule.getToken(messaging, {
@@ -86,6 +104,7 @@ export function useFrontdeskPushNotifications(params: {
 
     tokenRef.current = token;
     const idToken = await getIdToken(params.user);
+    setDebugMessage(mode === "subscribe" ? "登録中: subscription API 呼び出し" : "解除中: subscription API 呼び出し");
 
     const response = await fetch("/api/frontdesk/push-subscriptions", {
       method: mode === "subscribe" ? "POST" : "DELETE",
@@ -108,11 +127,13 @@ export function useFrontdeskPushNotifications(params: {
       await messagingModule.deleteToken(messaging);
       tokenRef.current = "";
       setIsSubscribed(false);
+      setDebugMessage("通知登録を解除しました");
       window.localStorage.setItem(FRONTDESK_NOTIFICATION_ENABLED_KEY, "false");
       return;
     }
 
     setIsSubscribed(true);
+    setDebugMessage(`通知登録に成功しました token:${token.slice(0, 10)}...`);
     window.localStorage.setItem(FRONTDESK_NOTIFICATION_ENABLED_KEY, "true");
   }, [params.user, vapidKey]);
 
@@ -123,6 +144,7 @@ export function useFrontdeskPushNotifications(params: {
 
     setIsLoading(true);
     setError(null);
+    setDebugMessage(null);
 
     try {
       if (!("Notification" in window)) {
@@ -131,6 +153,7 @@ export function useFrontdeskPushNotifications(params: {
         throw new Error("push-not-supported");
       }
 
+      setDebugMessage("開始: ブラウザ通知権限の要求");
       const result = await Notification.requestPermission();
       setPermission(result);
 
@@ -140,7 +163,7 @@ export function useFrontdeskPushNotifications(params: {
 
       await syncSubscription("subscribe");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "failed-to-enable-push");
+      setError(resolveErrorText(nextError, "通知有効化失敗"));
     } finally {
       setIsLoading(false);
     }
@@ -153,11 +176,12 @@ export function useFrontdeskPushNotifications(params: {
 
     setIsLoading(true);
     setError(null);
+    setDebugMessage(null);
 
     try {
       await syncSubscription("unsubscribe");
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "failed-to-disable-push");
+      setError(resolveErrorText(nextError, "通知解除失敗"));
     } finally {
       setIsLoading(false);
     }
@@ -194,12 +218,16 @@ export function useFrontdeskPushNotifications(params: {
 
       setIsLoading(true);
       setError(null);
+      setDebugMessage("復元中: 既存の通知購読を確認");
 
       try {
         await syncSubscription("subscribe");
+        if (isActive) {
+          setDebugMessage((current) => current ?? "保存済みの通知購読を復元しました");
+        }
       } catch (nextError) {
         if (isActive) {
-          setError(nextError instanceof Error ? nextError.message : "failed-to-restore-push");
+          setError(resolveErrorText(nextError, "通知購読復元失敗"));
         }
       } finally {
         if (isActive) {
@@ -215,7 +243,41 @@ export function useFrontdeskPushNotifications(params: {
     };
   }, [params.enabled, params.user, syncSubscription, vapidKey]);
 
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    async function registerForegroundListener() {
+      if (!params.enabled || typeof window === "undefined" || permission !== "granted") {
+        return;
+      }
+
+      const messagingModule = await loadMessagingModule();
+      if (!messagingModule) {
+        return;
+      }
+
+      const messaging = messagingModule.getMessaging(getFirebaseApp());
+      unsubscribe = messagingModule.onMessage(messaging, (payload) => {
+        const data = payload.data ?? {};
+        const title = data.title?.trim() || payload.notification?.title?.trim() || "新しいフロント対応チャット";
+        const body = data.body?.trim() || payload.notification?.body?.trim() || "新しいメッセージがあります";
+        setDebugMessage(`受信成功: foreground message ${title}`);
+
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification(title, { body });
+        }
+      });
+    }
+
+    void registerForegroundListener();
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [params.enabled, permission]);
+
   return {
+    debugMessage,
     enable,
     disable,
     error,
