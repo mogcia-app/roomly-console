@@ -21,7 +21,6 @@ import {
 import type { ChatThreadRecord, MessageRecord } from "@/lib/frontdesk/types";
 import { useHotelRooms, useHotelStays, useRecentThreads, useStayMessages, useThreadMessages } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
-import { useFrontdeskPushNotifications } from "@/hooks/useFrontdeskPushNotifications";
 import { useCompactModePreference } from "@/hooks/useFrontdeskPreferences";
 import { useHotelReplyTemplates } from "@/hooks/useHotelReplyTemplates";
 
@@ -315,10 +314,6 @@ export function FrontdeskConsole() {
   const [compactMode] = useCompactModePreference();
   const role = claims?.role;
   const canOperate = role === "hotel_front" || role === "hotel_admin";
-  const pushNotifications = useFrontdeskPushNotifications({
-    enabled: canOperate,
-    user,
-  });
 
   const hotelId = useDeferredValue((claims?.hotel_id ?? defaultHotelId).trim());
   const staffUserId = useDeferredValue(user?.uid ?? "");
@@ -652,10 +647,6 @@ export function FrontdeskConsole() {
   }
 
   async function handleLogout() {
-    if (pushNotifications.isSubscribed) {
-      await pushNotifications.disable();
-    }
-
     await logout();
   }
 
@@ -683,50 +674,6 @@ export function FrontdeskConsole() {
           }`}
         >
           {actionState.message}
-        </div>
-      ) : null}
-
-      {canOperate ? (
-        <div className="mx-3 mt-3 rounded-2xl border border-[#e7c0bb] bg-[#fff5f4] px-4 py-3 text-sm text-stone-700 shadow-sm sm:mx-6 lg:mx-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-semibold text-stone-900">Web Push 通知</p>
-              <p className="mt-1 text-xs leading-5 text-stone-500">
-                {pushNotifications.permission === "denied"
-                  ? "ブラウザで通知が拒否されています。Chrome のサイト設定から通知を許可してください。"
-                  : pushNotifications.isSubscribed
-                    ? "バックグラウンドでも新着チャット通知を受け取る設定です。"
-                    : "Chrome を閉じ気味でも拾えるように、FCM Web Push を有効化してください。"}
-              </p>
-              {pushNotifications.error ? (
-                <p className="mt-2 text-xs text-rose-700">{pushNotifications.error}</p>
-              ) : null}
-              {pushNotifications.debugMessage ? (
-                <p className="mt-2 text-xs text-emerald-700">登録デバッグ: {pushNotifications.debugMessage}</p>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              {pushNotifications.isSubscribed ? (
-                <button
-                  type="button"
-                  className="rounded-full border border-stone-200 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void pushNotifications.disable()}
-                  disabled={pushNotifications.isLoading}
-                >
-                  {pushNotifications.isLoading ? "解除中..." : "通知を解除"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="rounded-full bg-[#ad2218] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300"
-                  onClick={() => void pushNotifications.enable()}
-                  disabled={pushNotifications.isLoading || !pushNotifications.isSupported}
-                >
-                  {pushNotifications.isLoading ? "設定中..." : "通知を有効化"}
-                </button>
-              )}
-            </div>
-          </div>
         </div>
       ) : null}
 
