@@ -246,6 +246,7 @@ function ThreadListCard({
 }) {
   const roomInitial = roomLabel.slice(0, 1) || "客";
   const headline = guestName ? `${roomLabel}/${guestName}様` : roomLabel;
+  const emergencyLabel = isEmergencyThread(thread) ? resolveEmergencyLabel(thread.category) : "";
 
   return (
     <button
@@ -270,12 +271,20 @@ function ThreadListCard({
           {roomInitial}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[15px] font-semibold text-stone-950">{headline}</h3>
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="truncate text-[15px] font-semibold text-stone-950">{headline}</h3>
+            {emergencyLabel ? (
+              <span className="shrink-0 rounded-full bg-[#ad2218] px-2.5 py-1 text-[11px] font-semibold text-white">
+                緊急: {emergencyLabel}
+              </span>
+            ) : null}
+          </div>
           <p className="mt-1 line-clamp-1 text-sm text-stone-500">
             {thread.last_message_body ?? thread.category ?? formatThreadInquiryType(thread)}
           </p>
           <div className="mt-3 flex items-center justify-between gap-2 text-xs text-stone-400">
             <div className="flex flex-wrap items-center gap-2">
+              {emergencyLabel ? <span className="font-semibold text-[#ad2218]">最優先対応</span> : null}
               {selectedByOther ? <span>他スタッフ対応中</span> : null}
               {stayState === "checked_out" ? <span>チェックアウト済み</span> : null}
             </div>
@@ -794,6 +803,11 @@ export function FrontdeskConsole() {
                     </h2>
                     {!selectedThread ? (
                       <p className="mt-1 truncate text-xs text-stone-500">左の一覧から問い合わせを選択してください</p>
+                    ) : null}
+                    {selectedThread && isEmergencyCategory(selectedThread.category) ? (
+                      <div className="mt-2 inline-flex items-center rounded-full bg-[#ad2218] px-3 py-1 text-xs font-semibold text-white">
+                        緊急対応: {resolveEmergencyLabel(selectedThread.category)}
+                      </div>
                     ) : null}
                   </div>
                 </div>
