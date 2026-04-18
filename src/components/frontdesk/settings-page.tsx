@@ -392,15 +392,15 @@ export function FrontdeskSettingsPage() {
   }
 
   return (
-      <FrontdeskShell
-        compactMode={compactMode}
-        fixedHeader
-        pageSubtitle="通知や表示設定と、ゲスト案内に必要な運用情報を確認できます"
-        pageTitle="設定"
-        onLogout={() => logout()}
-        role={role}
-      >
-      <div className={`px-4 sm:px-6 lg:px-8 ${compactMode ? "py-4" : "py-5"}`}>
+    <FrontdeskShell
+      compactMode={compactMode}
+      fixedHeader
+      pageSubtitle="通知や表示設定と、ゲスト案内に必要な運用情報を確認できます"
+      pageTitle="設定"
+      onLogout={() => logout()}
+      role={role}
+    >
+      <div className={`min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 ${compactMode ? "py-4" : "py-5"}`}>
         <div className={`grid lg:grid-cols-[minmax(0,1.2fr)_340px] ${compactMode ? "gap-4" : "gap-5"}`}>
           <div className={compactMode ? "space-y-4" : "space-y-5"}>
             <section

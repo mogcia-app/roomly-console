@@ -2,6 +2,7 @@ import type { Timestamp } from "firebase/firestore";
 
 export type ThreadMode = "ai" | "human";
 export type ThreadStatus = "new" | "in_progress" | "resolved";
+export type HandoffStatus = "none" | "requested" | "accepted";
 export type MessageSender = "guest" | "ai" | "front" | "system";
 export type TranslationState = "not_required" | "fallback" | "ready";
 
@@ -22,6 +23,9 @@ export type ChatThreadRecord = {
   guest_language?: string;
   is_active?: boolean;
   emergency?: boolean;
+  handoff_status?: HandoffStatus;
+  handoff_requested_at?: FirestoreDate;
+  handoff_accepted_at?: FirestoreDate;
   event_type?:
     | "chat_ai_started"
     | "chat_handoff_requested"

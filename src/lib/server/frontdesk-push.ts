@@ -11,6 +11,16 @@ type PushSubscriptionRecord = {
   active: boolean;
 };
 
+type PushDispatchThreadState = {
+  category?: string | null;
+  lastMessageBody?: string | null;
+  lastMessageSender?: string | null;
+  roomDisplayName?: string | null;
+  roomId?: string | null;
+  roomNumber?: string | null;
+  unreadCountFront?: number | null;
+};
+
 function buildSubscriptionDocId(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -23,6 +33,14 @@ function readString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function readNullableString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readNullableNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function truncateNotificationBody(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -30,6 +48,15 @@ function truncateNotificationBody(value: string) {
   }
 
   return trimmed.length > 120 ? `${trimmed.slice(0, 117)}...` : trimmed;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function isEmergencyCategory(category: string) {
@@ -77,6 +104,24 @@ async function listActiveSubscriptionDocs(hotelId: string) {
     .get();
 
   return snapshot.docs;
+}
+
+async function listHotelNotificationEmails(hotelId: string) {
+  const snapshot = await getFirebaseAdminDb()
+    .collection("users")
+    .where("hotel_id", "==", hotelId)
+    .where("is_active", "==", true)
+    .get();
+
+  return Array.from(
+    new Set(
+      snapshot.docs
+        .map((doc) => doc.data())
+        .filter((data) => data.role === "hotel_admin" || data.role === "hotel_front")
+        .map((data) => readString(data.email).trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
 }
 
 async function deactivateSubscriptionsByToken(tokens: string[]) {
@@ -231,10 +276,98 @@ async function sendFrontdeskPushToHotel(params: {
   }
 }
 
+async function sendFrontdeskEmailToHotel(params: {
+  body: string;
+  hotelId: string;
+  threadId: string;
+  title: string;
+  roomLabel: string;
+}) {
+  const resendApiKey = process.env.RESEND_API_KEY?.trim() ?? "";
+  const from = process.env.FRONTDESK_EMAIL_FROM?.trim() ?? "";
+  const replyTo = process.env.FRONTDESK_EMAIL_REPLY_TO?.trim() ?? "";
+  const baseUrl = (process.env.FRONTDESK_API_BASE_URL?.trim() ?? "").replace(/\/$/, "");
+
+  if (!resendApiKey || !from) {
+    return { recipientCount: 0, sent: false, skipped: true };
+  }
+
+  const recipients = await listHotelNotificationEmails(params.hotelId);
+  if (recipients.length === 0) {
+    return { recipientCount: 0, sent: false, skipped: false };
+  }
+
+  const threadUrl = baseUrl ? `${baseUrl}/?threadId=${encodeURIComponent(params.threadId)}` : "";
+  const subject = params.title.startsWith("緊急:")
+    ? `[Roomly] ${params.title}`
+    : `[Roomly] ${params.roomLabel} から新着メッセージ`;
+  const safeBody = escapeHtml(params.body);
+  const safeRoomLabel = escapeHtml(params.roomLabel);
+  const safeTitle = escapeHtml(params.title);
+  const safeThreadUrl = escapeHtml(threadUrl);
+  const text = [
+    params.title,
+    "",
+    `部屋: ${params.roomLabel}`,
+    `内容: ${params.body}`,
+    threadUrl ? `管理画面: ${threadUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #1c1917;">
+      <h2 style="margin: 0 0 16px; font-size: 20px;">${safeTitle}</h2>
+      <p style="margin: 0 0 8px;"><strong>部屋:</strong> ${safeRoomLabel}</p>
+      <p style="margin: 0 0 16px;"><strong>内容:</strong><br>${safeBody}</p>
+      ${threadUrl ? `<p style="margin: 0;"><a href="${safeThreadUrl}">管理画面で確認する</a></p>` : ""}
+    </div>
+  `.trim();
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: recipients,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+        subject,
+        text,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("frontdesk-email-send-error", {
+        error: errorText || "unknown-error",
+        hotelId: params.hotelId,
+        recipientCount: recipients.length,
+        threadId: params.threadId,
+      });
+      return { recipientCount: recipients.length, sent: false, skipped: false };
+    }
+
+    return { recipientCount: recipients.length, sent: true, skipped: false };
+  } catch (error) {
+    console.error("frontdesk-email-send-error", {
+      error: error instanceof Error ? error.message : "unknown-error",
+      hotelId: params.hotelId,
+      recipientCount: recipients.length,
+      threadId: params.threadId,
+    });
+    return { recipientCount: recipients.length, sent: false, skipped: false };
+  }
+}
+
 export async function dispatchFrontdeskGuestMessagePush(params: {
   dispatchKey: string;
   hotelId: string;
   threadId: string;
+  threadState?: PushDispatchThreadState;
 }) {
   const dispatchKey = params.dispatchKey.trim();
   if (!dispatchKey) {
@@ -267,13 +400,15 @@ export async function dispatchFrontdeskGuestMessagePush(params: {
     }
 
     const unreadCount =
-      typeof threadData.unread_count_front === "number"
+      params.threadState?.unreadCountFront ??
+      (typeof threadData.unread_count_front === "number"
         ? threadData.unread_count_front
         : typeof threadData.unreadCountFront === "number"
           ? threadData.unreadCountFront
-          : 0;
+          : 0);
     const sender =
-      threadData.last_message_sender === "guest" ||
+      params.threadState?.lastMessageSender ??
+      (threadData.last_message_sender === "guest" ||
       threadData.last_message_sender === "ai" ||
       threadData.last_message_sender === "front" ||
       threadData.last_message_sender === "system"
@@ -283,7 +418,7 @@ export async function dispatchFrontdeskGuestMessagePush(params: {
             threadData.lastMessageSender === "front" ||
             threadData.lastMessageSender === "system"
           ? threadData.lastMessageSender
-          : "";
+          : "");
 
     if (unreadCount <= 0 || (sender !== "guest" && sender !== "ai")) {
       return null;
@@ -296,39 +431,57 @@ export async function dispatchFrontdeskGuestMessagePush(params: {
       created_at: FieldValue.serverTimestamp(),
     });
 
-    const category = readString(threadData.category);
+    const category = readString(params.threadState?.category) || readString(threadData.category);
     const emergencyLabel = isEmergencyCategory(category) ? resolveEmergencyLabel(category) : "";
+    const roomId = readString(params.threadState?.roomId) || readString(threadData.room_id) || readString(threadData.roomId);
+    const roomNumber = readString(params.threadState?.roomNumber) || readString(threadData.room_number) || readString(threadData.roomNumber) || undefined;
+    const roomDisplayName =
+      readString(params.threadState?.roomDisplayName) || readString(threadData.room_display_name) || readString(threadData.roomDisplayName) || undefined;
+    const lastMessageBody = readString(params.threadState?.lastMessageBody) || readString(threadData.last_message_body);
+
+    const roomLabel = formatRoomLabel(
+      roomId,
+      roomNumber,
+      roomDisplayName,
+    );
 
     return {
       body: truncateNotificationBody(
-        readString(threadData.last_message_body) || readString(threadData.category) || "新しいメッセージがあります",
+        lastMessageBody || category || "新しいメッセージがあります",
       ),
+      roomLabel,
       title: emergencyLabel
         ? `緊急: ${emergencyLabel}`
-        : `${formatRoomLabel(
-            readString(threadData.room_id) || readString(threadData.roomId),
-            readString(threadData.room_number) || readString(threadData.roomNumber) || undefined,
-            readString(threadData.room_display_name) || readString(threadData.roomDisplayName) || undefined,
-          )} から新着チャット`,
+        : `${roomLabel} から新着チャット`,
     };
   });
 
   if (!sendContext) {
-    return { dispatched: false, sentCount: 0, tokenCount: 0 };
+    return { dispatched: false, emailSent: false, emailRecipientCount: 0, sentCount: 0, tokenCount: 0 };
   }
 
-  const result = await sendFrontdeskPushToHotel({
+  const pushResult = await sendFrontdeskPushToHotel({
     body: sendContext.body,
     hotelId: params.hotelId,
+    threadId: params.threadId,
+    title: sendContext.title,
+  });
+  const emailResult = await sendFrontdeskEmailToHotel({
+    body: sendContext.body,
+    hotelId: params.hotelId,
+    roomLabel: sendContext.roomLabel,
     threadId: params.threadId,
     title: sendContext.title,
   });
 
   await dispatchRef.set(
     {
+      email_recipient_count: emailResult.recipientCount,
+      email_sent: emailResult.sent,
+      email_skipped: emailResult.skipped,
       sent_at: FieldValue.serverTimestamp(),
-      sent_count: result.sentCount,
-      token_count: result.tokenCount,
+      sent_count: pushResult.sentCount,
+      token_count: pushResult.tokenCount,
       updated_at: FieldValue.serverTimestamp(),
     },
     { merge: true },
@@ -336,7 +489,23 @@ export async function dispatchFrontdeskGuestMessagePush(params: {
 
   return {
     dispatched: true,
-    sentCount: result.sentCount,
-    tokenCount: result.tokenCount,
+    emailRecipientCount: emailResult.recipientCount,
+    emailSent: emailResult.sent,
+    sentCount: pushResult.sentCount,
+    tokenCount: pushResult.tokenCount,
   };
+}
+
+export function parsePushDispatchThreadState(input: Record<string, unknown>): PushDispatchThreadState | undefined {
+  const threadState: PushDispatchThreadState = {
+    unreadCountFront: readNullableNumber(input.unreadCountFront),
+    lastMessageSender: readNullableString(input.lastMessageSender),
+    lastMessageBody: readNullableString(input.lastMessageBody),
+    category: readNullableString(input.category),
+    roomId: readNullableString(input.roomId),
+    roomNumber: readNullableString(input.roomNumber),
+    roomDisplayName: readNullableString(input.roomDisplayName),
+  };
+
+  return Object.values(threadState).some((value) => value !== null && value !== undefined) ? threadState : undefined;
 }

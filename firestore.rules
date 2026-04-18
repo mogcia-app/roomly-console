@@ -30,6 +30,22 @@ service cloud.firestore {
       return belongsToHotel(resourceData.hotel_id) || belongsToHotel(resourceData.hotelId);
     }
 
+    function resourceThreadId(resourceData) {
+      return resourceData.thread_id is string
+        ? resourceData.thread_id
+        : resourceData.threadId is string
+          ? resourceData.threadId
+          : "";
+    }
+
+    function resourceHotelId(resourceData) {
+      return resourceData.hotel_id is string
+        ? resourceData.hotel_id
+        : resourceData.hotelId is string
+          ? resourceData.hotelId
+          : "";
+    }
+
     function hasOnlyChangedKeys(allowedKeys) {
       return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowedKeys);
     }
@@ -39,22 +55,26 @@ service cloud.firestore {
       allow create, delete: if false;
       allow update: if isFrontRole()
         && belongsToHotelResource(resource.data)
-        && request.resource.data.hotel_id == resource.data.hotel_id;
+        && resourceHotelId(request.resource.data) == resourceHotelId(resource.data);
     }
 
     match /messages/{messageId} {
       allow read: if isFrontRole()
-        && exists(/databases/$(database)/documents/chat_threads/$(resource.data.thread_id))
+        && exists(/databases/$(database)/documents/chat_threads/$(resourceThreadId(resource.data)))
         && belongsToHotel(
-          get(/databases/$(database)/documents/chat_threads/$(resource.data.thread_id)).data.hotel_id
+          resourceHotelId(
+            get(/databases/$(database)/documents/chat_threads/$(resourceThreadId(resource.data))).data
+          )
         );
 
       allow create: if isFrontRole()
         && request.resource.data.sender == "front"
-        && request.resource.data.thread_id is string
-        && exists(/databases/$(database)/documents/chat_threads/$(request.resource.data.thread_id))
+        && resourceThreadId(request.resource.data) != ""
+        && exists(/databases/$(database)/documents/chat_threads/$(resourceThreadId(request.resource.data)))
         && belongsToHotel(
-          get(/databases/$(database)/documents/chat_threads/$(request.resource.data.thread_id)).data.hotel_id
+          resourceHotelId(
+            get(/databases/$(database)/documents/chat_threads/$(resourceThreadId(request.resource.data))).data
+          )
         );
 
       allow update, delete: if false;
@@ -74,7 +94,7 @@ service cloud.firestore {
       allow read: if isFrontRole()
         && (
           request.auth.uid == uid
-          || (role() == "hotel_admin" && belongsToHotel(resource.data.hotel_id))
+          || (role() == "hotel_admin" && belongsToHotel(resourceHotelId(resource.data)))
         );
       allow write: if false;
     }

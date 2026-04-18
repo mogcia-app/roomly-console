@@ -8,18 +8,16 @@ import { FrontdeskAuthLoading } from "@/components/frontdesk/frontdesk-auth-load
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import {
   markThreadSeenByFront,
-  markGuestMessagesRead,
   requestTranslationPreview,
   sendFrontMessage,
 } from "@/lib/frontdesk/firestore";
 import { formatGuestLanguageLabel } from "@/lib/frontdesk/languages";
 import {
-  formatInquiryType,
   formatRoomLabel,
   formatSenderLabel,
+  formatThreadInquiryType,
   formatTime,
 } from "@/lib/frontdesk/format";
-import { FRONTDESK_NOTIFICATION_ENABLED_KEY } from "@/lib/frontdesk/preferences";
 import type { ChatThreadRecord, MessageRecord } from "@/lib/frontdesk/types";
 import { useHotelRooms, useHotelStays, useRecentThreads, useStayMessages, useThreadMessages } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
@@ -200,12 +198,13 @@ function resolveMessageMeta(message: MessageRecord) {
   };
 }
 
-function resolveGroupModeSummary(group: ThreadGroup) {
-  if (group.hasAiThread && group.hasHumanThread) {
-    return "AI / Staff";
+function shouldHideFrontdeskMessage(message: MessageRecord) {
+  if (message.sender !== "system") {
+    return false;
   }
 
-  return group.hasAiThread ? "AI" : "Staff";
+  const body = (message.body ?? "").trim();
+  return body === "The front desk has been notified. Please wait for a reply.";
 }
 
 function resolveThreadStayState(
@@ -220,31 +219,16 @@ function resolveThreadStayState(
   return stayStates.get(stayId) ?? "unknown";
 }
 
-function resolveDispatchTimestampSegment(thread: ChatThreadRecord) {
-  const target = thread.last_message_at ?? thread.updated_at;
-  if (!target) {
-    return "";
-  }
-
-  if (typeof target === "object" && "seconds" in target && typeof target.seconds === "number") {
-    const nanos = "nanoseconds" in target && typeof target.nanoseconds === "number" ? target.nanoseconds : 0;
-    return `${target.seconds}:${nanos}`;
-  }
-
-  if (typeof target === "object" && "toDate" in target && typeof target.toDate === "function") {
-    return `${target.toDate().getTime()}`;
-  }
-
-  return "";
+function resolveReplyThread(threads: ChatThreadRecord[]) {
+  return threads.find((thread) => thread.mode === "human" && thread.status !== "resolved") ?? null;
 }
 
-function resolveThreadDispatchKey(thread: ChatThreadRecord) {
-  const timestampSegment = resolveDispatchTimestampSegment(thread);
-  if (!timestampSegment) {
-    return "";
+function isAssignedToOtherStaff(thread: ChatThreadRecord | null, staffUserId: string) {
+  if (!thread || !staffUserId) {
+    return false;
   }
 
-  return `${thread.id}:${timestampSegment}:${thread.last_message_sender ?? "unknown"}`;
+  return thread.status === "in_progress" && Boolean(thread.assigned_to && thread.assigned_to !== staffUserId);
 }
 
 function ThreadListCard({
@@ -255,7 +239,6 @@ function ThreadListCard({
   selectedByOther,
   stayState,
   unreadCountFront,
-  modeSummary,
   onClick,
 }: {
   thread: ChatThreadRecord;
@@ -265,11 +248,10 @@ function ThreadListCard({
   selectedByOther: boolean;
   stayState: "active" | "checked_out" | "unknown";
   unreadCountFront: number;
-  modeSummary: string;
   onClick: () => void;
 }) {
   const roomInitial = roomLabel.slice(0, 1) || "客";
-  const emergencyLabel = isEmergencyCategory(thread.category) ? resolveEmergencyLabel(thread.category) : "";
+  const headline = guestName ? `${roomLabel}/${guestName}様` : roomLabel;
 
   return (
     <button
@@ -277,10 +259,10 @@ function ThreadListCard({
       className={`w-full rounded-[8px] border px-4 py-3.5 text-left transition ${
         isEmergencyThread(thread)
           ? isSelected
-            ? "border-[#c33b2b] bg-[#fff1ef] shadow-[0_12px_28px_rgba(173,34,24,0.16)]"
+            ? "border-[#c33b2b] bg-[#fff1ef]"
             : "border-[#efb8b2] bg-[#fff8f7] hover:border-[#d95e52] hover:bg-[#fff1ef]"
           : isSelected
-            ? "border-[#e1b8b3] bg-[#fff4f2] shadow-[0_10px_24px_rgba(173,34,24,0.10)]"
+            ? "border-[#e1b8b3] bg-[#fff4f2]"
             : "border-[#ead8d5] bg-white hover:border-[#ddb5af] hover:bg-[#fffafa]"
       }`}
       onClick={onClick}
@@ -294,44 +276,17 @@ function ThreadListCard({
           {roomInitial}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="truncate text-[15px] font-semibold text-stone-950">
-              {roomLabel}
-              {guestName ? <span className="ml-2 font-medium text-stone-500">/ {guestName}</span> : null}
-            </h3>
-            <span className="shrink-0 text-[11px] text-stone-400">{formatTime(thread.updated_at)}</span>
-          </div>
+          <h3 className="truncate text-[15px] font-semibold text-stone-950">{headline}</h3>
           <p className="mt-1 line-clamp-1 text-sm text-stone-500">
-            {thread.last_message_body ?? thread.category ?? formatInquiryType(thread.event_type, "chat")}
+            {thread.last_message_body ?? thread.category ?? formatThreadInquiryType(thread)}
           </p>
-          <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2 text-stone-400">
-              {emergencyLabel ? (
-                <span className="rounded-full bg-[#ad2218] px-2 py-1 text-[11px] font-semibold text-white">
-                  {emergencyLabel}
-                </span>
-              ) : null}
-              <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
-                modeSummary === "AI"
-                  ? "bg-[#f2e8ff] text-[#6c3baa]"
-                  : modeSummary === "Staff"
-                    ? "bg-[#fff1ef] text-[#ad2218]"
-                    : "bg-stone-200 text-stone-700"
-              }`}>
-                {modeSummary}
-              </span>
-              <span>{thread.guest_language ? formatGuestLanguageLabel(thread.guest_language) : "言語未設定"}</span>
+          <div className="mt-3 flex items-center justify-between gap-2 text-xs text-stone-400">
+            <div className="flex flex-wrap items-center gap-2">
               {selectedByOther ? <span>他スタッフ対応中</span> : null}
-              {stayState === "checked_out" ? (
-                <span className="rounded-full bg-stone-200 px-2 py-1 text-[11px] font-semibold text-stone-700">
-                  チェックアウト済み
-                </span>
-              ) : null}
+              {stayState === "checked_out" ? <span>チェックアウト済み</span> : null}
             </div>
             {unreadCountFront > 0 ? (
               <span className="block h-2.5 w-2.5 rounded-full bg-[#ad2218]" aria-label="未読あり" />
-            ) : thread.emergency ? (
-              <span className="rounded-full bg-[#fff3f1] px-2 py-1 text-[11px] font-semibold text-[#d14b3d]">緊急</span>
             ) : null}
           </div>
         </div>
@@ -354,9 +309,7 @@ export function FrontdeskConsole() {
   );
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
-  const [pushDebugMessage, setPushDebugMessage] = useState<string | null>(null);
   const [isPending, startUiTransition] = useTransition();
-  const notifiedThreadIdsRef = useState(() => new Set<string>())[0];
   const pendingFallbackTranslationIdsRef = useState(() => new Set<string>())[0];
   const emergencyAlertThreadIdsRef = useState(() => new Set<string>())[0];
   const [compactMode] = useCompactModePreference();
@@ -366,7 +319,6 @@ export function FrontdeskConsole() {
     enabled: canOperate,
     user,
   });
-  const notifiedDispatchKeysRef = useState(() => new Set<string>())[0];
 
   const hotelId = useDeferredValue((claims?.hotel_id ?? defaultHotelId).trim());
   const staffUserId = useDeferredValue(user?.uid ?? "");
@@ -409,6 +361,10 @@ export function FrontdeskConsole() {
     () => new Map(hotelStays.data.map((stay) => [stay.id, stay.guest_name ?? null])),
     [hotelStays.data],
   );
+  const stayGuestLanguages = useMemo(
+    () => new Map(hotelStays.data.map((stay) => [stay.id, stay.guest_language ?? ""])),
+    [hotelStays.data],
+  );
   const groupedThreads = useMemo<ThreadGroup[]>(() => {
     const groups = new Map<string, ChatThreadRecord[]>();
 
@@ -429,7 +385,7 @@ export function FrontdeskConsole() {
           id: key,
           stayId: (primaryThread.stay_id ?? primaryThread.stayId ?? "").trim(),
           primaryThread,
-          replyThread: sortedThreads.find((thread) => thread.mode === "human") ?? null,
+          replyThread: resolveReplyThread(sortedThreads),
           threads: sortedThreads,
           unreadCountFront: sortedThreads.reduce((sum, thread) => sum + (thread.unread_count_front ?? 0), 0),
           hasAiThread: sortedThreads.some((thread) => thread.mode === "ai"),
@@ -458,6 +414,17 @@ export function FrontdeskConsole() {
     return groupedThreads.filter((group) => {
       const thread = group.primaryThread;
       const stayId = group.stayId;
+      const stayState = resolveThreadStayState(thread, stayStates);
+      const hasLinkedStay = !stayId || hotelStays.data.some((stay) => stay.id === stayId);
+
+      if (!hasLinkedStay) {
+        return false;
+      }
+
+      if (stayState === "checked_out") {
+        return false;
+      }
+
       if (!query) {
         return true;
       }
@@ -469,8 +436,12 @@ export function FrontdeskConsole() {
         roomDisplayNames,
       ).toLowerCase();
       const category = group.threads.map((item) => item.category ?? "").join(" ").toLowerCase();
-      const lang = group.threads.map((item) => item.guest_language ?? "").join(" ").toLowerCase();
-      const langLabel = group.threads.map((item) => formatGuestLanguageLabel(item.guest_language)).join(" ").toLowerCase();
+      const groupGuestLanguage =
+        stayGuestLanguages.get(stayId) ||
+        group.threads.map((item) => item.guest_language ?? "").find((language) => Boolean(language)) ||
+        "";
+      const lang = groupGuestLanguage.toLowerCase();
+      const langLabel = formatGuestLanguageLabel(groupGuestLanguage).toLowerCase();
       const guestName = ((stayGuestNames.get(stayId) ?? "") || "").toLowerCase();
       return (
         room.includes(query) ||
@@ -480,7 +451,7 @@ export function FrontdeskConsole() {
         guestName.includes(query)
       );
     });
-  }, [groupedThreads, roomDisplayNames, searchQuery, stayGuestNames]);
+  }, [groupedThreads, hotelStays.data, roomDisplayNames, searchQuery, stayGuestLanguages, stayGuestNames, stayStates]);
   const selectedGroup = useMemo(() => {
     const explicitSelection = filteredThreadGroups.find((group) => group.id === selectedThreadId);
     if (explicitSelection) {
@@ -500,9 +471,12 @@ export function FrontdeskConsole() {
   const selectedThread = selectedGroup?.primaryThread ?? null;
   const selectedReplyThread = selectedGroup?.replyThread ?? null;
   const selectedStayId = selectedGroup?.stayId ?? "";
+  const selectedStayExists = Boolean(selectedStayId && hotelStays.data.some((stay) => stay.id === selectedStayId));
+  const effectiveSelectedStayId = selectedStayExists ? selectedStayId : "";
+  const shouldUseStayMessages = Boolean(effectiveSelectedStayId);
   const effectiveSelectedThreadId = selectedThread?.id ?? "";
-  const threadMessages = useThreadMessages(effectiveSelectedThreadId);
-  const stayMessages = useStayMessages(selectedStayId);
+  const threadMessages = useThreadMessages(effectiveSelectedThreadId, !shouldUseStayMessages);
+  const stayMessages = useStayMessages(effectiveSelectedStayId, shouldUseStayMessages);
   const selectedThreadMessages = useMemo(
     () => {
       if (!selectedGroup) {
@@ -510,17 +484,21 @@ export function FrontdeskConsole() {
       }
 
       const threadIds = new Set(selectedGroup.threads.map((thread) => thread.id));
-      const sourceMessages = selectedGroup.stayId ? stayMessages.data : threadMessages.data;
+      const sourceMessages = shouldUseStayMessages ? stayMessages.data : threadMessages.data;
 
-      return sourceMessages.filter((message) => threadIds.has(message.thread_id));
+      return sourceMessages.filter((message) => threadIds.has(message.thread_id) && !shouldHideFrontdeskMessage(message));
     },
-    [selectedGroup, stayMessages.data, threadMessages.data],
+    [selectedGroup, shouldUseStayMessages, stayMessages.data, threadMessages.data],
   );
-  const selectedMessagesState = selectedGroup?.stayId ? stayMessages : threadMessages;
+  const selectedMessagesState = shouldUseStayMessages ? stayMessages : threadMessages;
   const hasConnectionContext = Boolean(hotelId && staffUserId && canOperate);
   const requestedStayHasThread = Boolean(
     requestedStayId && filteredThreadGroups.some((group) => group.stayId === requestedStayId),
   );
+  const selectedGuestName = selectedStayId ? stayGuestNames.get(selectedStayId) ?? null : null;
+  const selectedGuestLanguage =
+    (selectedStayId ? stayGuestLanguages.get(selectedStayId) : "") || selectedThread?.guest_language || "en";
+  const selectedReplyAssignedToOther = isAssignedToOtherStaff(selectedReplyThread, staffUserId);
   const selectedRoomLabel = selectedThread
     ? resolveRoomLabel(
         selectedThread.room_id,
@@ -560,7 +538,7 @@ export function FrontdeskConsole() {
 
       void requestTranslationPreview({
         text: (message.original_body ?? message.body).trim(),
-        sourceLanguage: message.original_language || selectedThread.guest_language || "en",
+        sourceLanguage: message.original_language || selectedGuestLanguage,
         targetLanguage: "ja",
       })
         .then((translatedText) => {
@@ -584,7 +562,15 @@ export function FrontdeskConsole() {
           pendingFallbackTranslationIdsRef.delete(message.id);
         });
     }
-  }, [fallbackTranslations, hasConnectionContext, pendingFallbackTranslationIdsRef, selectedGroup, selectedThread, selectedThreadMessages]);
+  }, [
+    fallbackTranslations,
+    hasConnectionContext,
+    pendingFallbackTranslationIdsRef,
+    selectedGroup,
+    selectedGuestLanguage,
+    selectedThread,
+    selectedThreadMessages,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -610,89 +596,6 @@ export function FrontdeskConsole() {
   }, [emergencyAlertThreadIdsRef, prioritizedThreads]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    if (!("Notification" in window) || Notification.permission !== "granted") {
-      return;
-    }
-
-    if (window.localStorage.getItem(FRONTDESK_NOTIFICATION_ENABLED_KEY) === "false") {
-      return;
-    }
-
-    if (pushNotifications.isSubscribed) {
-      return;
-    }
-
-    for (const thread of prioritizedThreads) {
-      if ((thread.unread_count_front ?? 0) <= 0 || notifiedThreadIdsRef.has(thread.id)) {
-        continue;
-      }
-
-      notifiedThreadIdsRef.add(thread.id);
-      new Notification(isEmergencyThread(thread) ? `緊急: ${resolveEmergencyLabel(thread.category)}` : "新しいフロント対応チャット", {
-        body: `${resolveRoomLabel(thread.room_id, thread.room_number, thread.room_display_name, roomDisplayNames)} / ${thread.last_message_body ?? thread.category ?? "新着メッセージ"}`,
-      });
-    }
-  }, [notifiedThreadIdsRef, prioritizedThreads, pushNotifications.isSubscribed, roomDisplayNames]);
-
-  useEffect(() => {
-    if (!hasConnectionContext || !pushNotifications.isSubscribed || !user) {
-      return;
-    }
-
-    for (const thread of prioritizedThreads) {
-      if (
-        (thread.unread_count_front ?? 0) <= 0 ||
-        (thread.last_message_sender !== "guest" && thread.last_message_sender !== "ai")
-      ) {
-        continue;
-      }
-
-      const dispatchKey = resolveThreadDispatchKey(thread);
-      if (!dispatchKey || notifiedDispatchKeysRef.has(dispatchKey)) {
-        continue;
-      }
-
-      notifiedDispatchKeysRef.add(dispatchKey);
-
-      void user.getIdToken().then(async (token) => {
-        const response = await fetch("/api/frontdesk/push-notifications", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            dispatchKey,
-            threadId: thread.id,
-          }),
-        });
-
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          result?: { dispatched?: boolean; sentCount?: number; tokenCount?: number };
-        };
-
-        if (!response.ok) {
-          setPushDebugMessage(`通知送信API失敗: ${payload.error ?? "unknown-error"}`);
-          notifiedDispatchKeysRef.delete(dispatchKey);
-          return;
-        }
-
-        setPushDebugMessage(
-          `通知送信API成功: dispatched=${payload.result?.dispatched ? "yes" : "no"} sent=${payload.result?.sentCount ?? 0}/${payload.result?.tokenCount ?? 0}`,
-        );
-      }).catch(() => {
-        setPushDebugMessage("通知送信API呼び出し失敗");
-        notifiedDispatchKeysRef.delete(dispatchKey);
-      });
-    }
-  }, [hasConnectionContext, notifiedDispatchKeysRef, prioritizedThreads, pushNotifications.isSubscribed, user]);
-
-  useEffect(() => {
     if (!selectedGroup || !hasConnectionContext) {
       return;
     }
@@ -706,49 +609,6 @@ export function FrontdeskConsole() {
       void markThreadSeenByFront(thread.id);
     });
   }, [hasConnectionContext, selectedGroup]);
-
-  useEffect(() => {
-    if (!selectedGroup || !hasConnectionContext) {
-      return;
-    }
-
-    if (selectedGroup.unreadCountFront <= 0) {
-      return;
-    }
-
-    const unreadGuestMessages = selectedThreadMessages
-      .filter((message) => {
-        if (message.sender !== "guest") {
-          return false;
-        }
-
-        return !(
-          message.read_at_guest ||
-          message.readAtGuest ||
-          message.read_at ||
-          message.readAt ||
-          message.seen_at_guest ||
-          message.seenAtGuest
-        );
-      });
-
-    if (unreadGuestMessages.length === 0) {
-      return;
-    }
-
-    const messageIdsByThread = new Map<string, string[]>();
-    unreadGuestMessages.forEach((message) => {
-      const current = messageIdsByThread.get(message.thread_id) ?? [];
-      current.push(message.id);
-      messageIdsByThread.set(message.thread_id, current);
-    });
-
-    messageIdsByThread.forEach((messageIds, threadId) => {
-      void markGuestMessagesRead(threadId, messageIds).catch(() => {
-        // Ignore guest read sync failures here; the thread remains usable and can retry on next open.
-      });
-    });
-  }, [hasConnectionContext, selectedGroup, selectedThreadMessages]);
 
   if (authLoading) {
     return <FrontdeskAuthLoading title="管理画面ログイン" />;
@@ -844,9 +704,6 @@ export function FrontdeskConsole() {
               {pushNotifications.debugMessage ? (
                 <p className="mt-2 text-xs text-emerald-700">登録デバッグ: {pushNotifications.debugMessage}</p>
               ) : null}
-              {pushDebugMessage ? (
-                <p className="mt-1 text-xs text-sky-700">送信デバッグ: {pushDebugMessage}</p>
-              ) : null}
             </div>
             <div className="flex items-center gap-2">
               {pushNotifications.isSubscribed ? (
@@ -940,13 +797,10 @@ export function FrontdeskConsole() {
                   )}
                   isSelected={selectedGroup?.id === group.id}
                   selectedByOther={
-                    group.threads.some(
-                      (thread) => thread.status === "in_progress" && Boolean(thread.assigned_to && thread.assigned_to !== staffUserId),
-                    )
+                    isAssignedToOtherStaff(group.replyThread, staffUserId)
                   }
                   stayState={resolveThreadStayState(group.primaryThread, stayStates)}
                   unreadCountFront={group.unreadCountFront}
-                  modeSummary={resolveGroupModeSummary(group)}
                   onClick={() => handleSelectThread(group.id)}
                 />
               ))}
@@ -974,39 +828,17 @@ export function FrontdeskConsole() {
                   >
                     一覧へ戻る
                   </button>
-                  <div className="flex items-center gap-3">
-                    {selectedThread ? (
-                      <div className="grid h-12 w-12 place-items-center rounded-full bg-[#ad2218] text-lg font-semibold text-white">
-                        {selectedRoomLabel.slice(0, 1) || "客"}
-                      </div>
+                  <div className="min-w-0">
+                    <h2 className="truncate text-lg font-semibold text-stone-950">
+                      {selectedThread
+                        ? selectedGuestName
+                          ? `${selectedRoomLabel}/${selectedGuestName}様`
+                          : selectedRoomLabel
+                        : "スレッド未選択"}
+                    </h2>
+                    {!selectedThread ? (
+                      <p className="mt-1 truncate text-xs text-stone-500">左の一覧から問い合わせを選択してください</p>
                     ) : null}
-                    <div className="min-w-0">
-                      <h2 className="truncate text-lg font-semibold text-stone-950">
-                        {selectedThread ? selectedRoomLabel : "スレッド未選択"}
-                      </h2>
-                      {selectedGroup && selectedThread ? (
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone-500">
-                          {isEmergencyCategory(selectedThread.category) ? (
-                            <span className="rounded-full bg-[#ad2218] px-2 py-1 font-semibold text-white">
-                              {resolveEmergencyLabel(selectedThread.category)}
-                            </span>
-                          ) : null}
-                          <span className="rounded-full bg-stone-200 px-2 py-1 font-semibold text-stone-700">
-                            {resolveGroupModeSummary(selectedGroup)}
-                          </span>
-                          <span>{formatSenderLabel(selectedThread.last_message_sender ?? "system")}</span>
-                          <span>{formatTime(selectedThread.last_message_at ?? selectedThread.updated_at)}</span>
-                          {stayGuestNames.get(selectedStayId) ? (
-                            <span>
-                              {stayGuestNames.get(selectedStayId)}
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {!selectedThread ? (
-                        <p className="mt-1 truncate text-xs text-stone-500">左の一覧から問い合わせを選択してください</p>
-                      ) : null}
-                    </div>
                   </div>
                 </div>
 
@@ -1034,7 +866,7 @@ export function FrontdeskConsole() {
                   </div>
                 ) : null}
                 {selectedThread && selectedThreadMessages.length === 0 && !selectedMessagesState.isLoading ? (
-                  <div className="rounded-[8px] border border-dashed border-[#e6c8c4] bg-white/80 px-4 py-8 text-center text-sm text-stone-500">
+                  <div className="px-4 py-8 text-center text-sm text-stone-500">
                     まだメッセージがありません
                   </div>
                 ) : null}
@@ -1138,11 +970,6 @@ export function FrontdeskConsole() {
                     <p className="mt-2 text-xs text-stone-500">テンプレ: {selectedTemplate}</p>
                   ) : null}
                 </div>
-                {!selectedReplyThread ? (
-                  <p className="mb-2 text-xs text-stone-500">
-                    この滞在にはまだ Staff 用スレッドがありません。human に引き継がれた後にスタッフ返信できます。
-                  </p>
-                ) : null}
                 <div className="flex items-end gap-3">
                   <textarea
                     rows={1}
@@ -1150,12 +977,18 @@ export function FrontdeskConsole() {
                     value={draftMessage}
                     onChange={(event) => setDraftMessage(event.target.value)}
                     placeholder="メッセージを入力"
-                    disabled={!selectedReplyThread}
+                    disabled={!selectedReplyThread || selectedReplyAssignedToOther}
                   />
                   <button
                     type="button"
                     className="grid h-12 min-w-12 shrink-0 place-items-center rounded-[8px] bg-[#ad2218] px-4 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(173,34,24,0.22)] transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:shadow-none sm:min-w-24"
-                    disabled={!selectedReplyThread || !hasConnectionContext || isPending || !draftMessage.trim()}
+                    disabled={
+                      !selectedReplyThread ||
+                      selectedReplyAssignedToOther ||
+                      !hasConnectionContext ||
+                      isPending ||
+                      !draftMessage.trim()
+                    }
                     onClick={() =>
                       selectedReplyThread && selectedThread &&
                       (() => {

@@ -3,6 +3,7 @@ import { verifyFrontdeskApiBearer } from "@/lib/server/frontdesk-api-auth";
 import {
   buildFrontdeskGuestPushDispatchKey,
   dispatchFrontdeskGuestMessagePush,
+  parsePushDispatchThreadState,
 } from "@/lib/server/frontdesk-push";
 
 function jsonError(message: string, status: number) {
@@ -14,11 +15,18 @@ export async function POST(request: Request) {
     verifyFrontdeskApiBearer(request);
 
     const body = (await request.json().catch(() => ({}))) as Partial<{
+      category: string;
       dispatchKey: string;
       hotelId: string;
+      lastMessageBody: string;
+      lastMessageSender: string;
       messageId: string;
+      roomDisplayName: string;
+      roomId: string;
+      roomNumber: string;
       threadId: string;
       timestamp: string | number;
+      unreadCountFront: number;
     }>;
 
     if (!body.threadId || !body.hotelId) {
@@ -37,6 +45,7 @@ export async function POST(request: Request) {
       dispatchKey,
       hotelId: body.hotelId,
       threadId: body.threadId,
+      threadState: parsePushDispatchThreadState(body as Record<string, unknown>),
     });
 
     return NextResponse.json({ result });

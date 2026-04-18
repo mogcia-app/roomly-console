@@ -32,6 +32,23 @@ function readNumber(value: unknown) {
   return typeof value === "number" ? value : 0;
 }
 
+function resolveHandoffStatus(data: Record<string, unknown>): ChatThreadRecord["handoff_status"] {
+  const rawStatus = typeof data.handoff_status === "string" ? data.handoff_status : typeof data.handoffStatus === "string" ? data.handoffStatus : "";
+  if (rawStatus === "none" || rawStatus === "requested" || rawStatus === "accepted") {
+    return rawStatus;
+  }
+
+  const eventType = typeof data.event_type === "string" ? data.event_type : typeof data.eventType === "string" ? data.eventType : "";
+  if (eventType === "chat_handoff_requested") {
+    return "requested";
+  }
+  if (eventType === "chat_handoff_accepted") {
+    return "accepted";
+  }
+
+  return undefined;
+}
+
 function mapThreadRecord(docId: string, data: Record<string, unknown>): ChatThreadRecord {
   return {
     id: docId,
@@ -54,6 +71,15 @@ function mapThreadRecord(docId: string, data: Record<string, unknown>): ChatThre
           ? data.isActive
           : undefined,
     emergency: typeof data.emergency === "boolean" ? data.emergency : undefined,
+    handoff_status: resolveHandoffStatus(data),
+    handoff_requested_at:
+      (data.handoff_requested_at as ChatThreadRecord["handoff_requested_at"]) ??
+      (data.handoffRequestedAt as ChatThreadRecord["handoff_requested_at"]) ??
+      null,
+    handoff_accepted_at:
+      (data.handoff_accepted_at as ChatThreadRecord["handoff_accepted_at"]) ??
+      (data.handoffAcceptedAt as ChatThreadRecord["handoff_accepted_at"]) ??
+      null,
     event_type:
       typeof data.event_type === "string"
         ? (data.event_type as ChatThreadRecord["event_type"])
@@ -407,8 +433,15 @@ export async function acceptHumanThread(threadId: string, staffUserId: string) {
 
     transaction.update(threadRef, {
       status: "in_progress",
+      handoff_status: "accepted",
+      handoffStatus: "accepted",
+      handoff_accepted_at: thread.handoff_accepted_at ?? serverTimestamp(),
+      handoffAcceptedAt: thread.handoff_accepted_at ?? serverTimestamp(),
+      assignedTo: staffUserId,
       assigned_to: staffUserId,
+      assignedAt: thread.assigned_at ?? serverTimestamp(),
       assigned_at: thread.assigned_at ?? serverTimestamp(),
+      updatedAt: serverTimestamp(),
       updated_at: serverTimestamp(),
     });
   });
@@ -433,8 +466,15 @@ export async function assignHumanThread(threadId: string, staffUserId: string) {
 
     transaction.update(threadRef, {
       status: "in_progress",
+      handoff_status: "accepted",
+      handoffStatus: "accepted",
+      handoff_accepted_at: thread.handoff_accepted_at ?? serverTimestamp(),
+      handoffAcceptedAt: thread.handoff_accepted_at ?? serverTimestamp(),
+      assignedTo: staffUserId,
       assigned_to: staffUserId,
+      assignedAt: serverTimestamp(),
       assigned_at: serverTimestamp(),
+      updatedAt: serverTimestamp(),
       updated_at: serverTimestamp(),
     });
   });
@@ -459,8 +499,11 @@ export async function resolveHumanThread(threadId: string, staffUserId: string) 
 
     transaction.update(threadRef, {
       status: "resolved",
+      resolvedBy: staffUserId,
       resolved_by: staffUserId,
+      resolvedAt: serverTimestamp(),
       resolved_at: serverTimestamp(),
+      updatedAt: serverTimestamp(),
       updated_at: serverTimestamp(),
     });
   });
@@ -516,35 +559,16 @@ export async function requestTranslationPreview(params: {
   return typeof payload.translatedText === "string" ? payload.translatedText : "";
 }
 
-export async function markGuestMessagesRead(threadId: string, messageIds?: string[]) {
-  const response = await fetch(`/api/admin/guest-threads/${threadId}/read`, {
-    method: "POST",
-    headers: await getAuthorizationHeaders(),
-    body: JSON.stringify(
-      messageIds && messageIds.length > 0
-        ? {
-            messageIds,
-          }
-        : {},
-    ),
-  });
-
-  const payload = (await response.json()) as { error?: string; ok?: boolean; updatedCount?: number };
-
-  if (!response.ok) {
-    throw new Error(payload.error ?? "failed-to-mark-guest-messages-read");
-  }
-
-  return payload.updatedCount ?? 0;
-}
-
 export async function markThreadSeenByFront(threadId: string) {
   const db = getFirestoreDb();
   const threadRef = doc(db, "chat_threads", threadId);
 
   await updateDoc(threadRef, {
     unread_count_front: 0,
+    unreadCountFront: 0,
     last_seen_by_front_at: serverTimestamp(),
+    lastSeenByFrontAt: serverTimestamp(),
     updated_at: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 }

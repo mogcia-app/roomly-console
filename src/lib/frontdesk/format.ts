@@ -1,4 +1,4 @@
-import type { FirestoreDate, MessageSender } from "@/lib/frontdesk/types";
+import type { ChatThreadRecord, FirestoreDate, MessageSender } from "@/lib/frontdesk/types";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("ja-JP", {
   month: "numeric",
@@ -121,6 +121,26 @@ export function formatInquiryType(eventType?: string, source?: "call" | "chat") 
     default:
       return source === "chat" ? "チャット" : "問い合わせ";
   }
+}
+
+export function formatThreadInquiryType(thread: Pick<ChatThreadRecord, "mode" | "handoff_status" | "emergency">) {
+  if (thread.emergency) {
+    return "緊急通知";
+  }
+
+  if (thread.handoff_status === "requested") {
+    return "フロント対応希望";
+  }
+
+  if (thread.handoff_status === "accepted") {
+    return "スタッフ対応";
+  }
+
+  if (thread.mode === "ai") {
+    return "AIチャット";
+  }
+
+  return "チャット";
 }
 
 export function formatStatusLabel(status?: string) {

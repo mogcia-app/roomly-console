@@ -84,6 +84,26 @@ function uniqById<T extends { id: string }>(items: T[]) {
   return Array.from(new Map(items.map((item) => [item.id, item])).values());
 }
 
+async function deleteDocumentsInBatches(
+  refs: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>[],
+) {
+  if (refs.length === 0) {
+    return;
+  }
+
+  const db = getFirebaseAdminDb();
+
+  for (let index = 0; index < refs.length; index += 450) {
+    const batch = db.batch();
+
+    for (const ref of refs.slice(index, index + 450)) {
+      batch.delete(ref);
+    }
+
+    await batch.commit();
+  }
+}
+
 function logStayEvent(
   event: string,
   params: {
@@ -163,6 +183,8 @@ async function autoCheckOutExpiredStays(hotelId: string, adminUid: string) {
           scheduledCheckOutAt: stay.scheduled_check_out_at?.toDate().toISOString() ?? null,
         },
       });
+
+      await deleteChatDataForStay(stay.id);
     }),
   );
 
@@ -173,6 +195,38 @@ export async function listHotelActiveStays(hotelId: string) {
   await autoCheckOutExpiredStays(hotelId, "system:auto-checkout");
   const stays = await listHotelStays(hotelId);
   return stays.filter((stay) => stay.is_active);
+}
+
+async function listMessagesByField(field: "thread_id" | "threadId" | "stay_id" | "stayId", value: string) {
+  const snapshot = await getFirebaseAdminDb().collection("messages").where(field, "==", value).get();
+  return snapshot.docs;
+}
+
+async function deleteChatDataForStay(stayId: string) {
+  const [snakeCaseThreads, camelCaseThreads] = await Promise.all([
+    listThreadsByStayIdField("stay_id", stayId),
+    listThreadsByStayIdField("stayId", stayId),
+  ]);
+
+  const threadEntries = uniqById([...snakeCaseThreads, ...camelCaseThreads]);
+  const threadIds = threadEntries.map((thread) => thread.id);
+  const messageSnapshots = await Promise.all([
+    listMessagesByField("stay_id", stayId),
+    listMessagesByField("stayId", stayId),
+    ...threadIds.map((threadId) => listMessagesByField("thread_id", threadId)),
+    ...threadIds.map((threadId) => listMessagesByField("threadId", threadId)),
+  ]);
+
+  const messageRefs = uniqById(
+    messageSnapshots.flat().map((snapshot) => ({
+      id: snapshot.id,
+      ref: snapshot.ref,
+    })),
+  ).map((entry) => entry.ref);
+  const threadRefs = threadEntries.map((thread) => getFirebaseAdminDb().collection("chat_threads").doc(thread.id));
+
+  await deleteDocumentsInBatches(messageRefs);
+  await deleteDocumentsInBatches(threadRefs);
 }
 
 async function assertRoomBelongsToHotel(hotelId: string, roomId: string) {
@@ -225,7 +279,12 @@ async function ensureHumanThreadForStay(params: {
     guestLanguage: params.guestLanguage ?? null,
     is_active: true,
     isActive: true,
-    event_type: "chat_handoff_accepted",
+    handoff_status: "none",
+    handoffStatus: "none",
+    handoff_requested_at: null,
+    handoffRequestedAt: null,
+    handoff_accepted_at: null,
+    handoffAcceptedAt: null,
     last_message_body: "チェックイン済み / まだメッセージはありません",
     lastMessageBody: "チェックイン済み / まだメッセージはありません",
     last_message_at: null,
@@ -447,6 +506,8 @@ export async function checkOutStay(params: { hotelId: string; roomId: string; ad
     },
     { merge: true },
   );
+
+  await deleteChatDataForStay(activeStay.id);
 
   const snapshot = await stayRef.get();
   return mapStayRecord(snapshot);

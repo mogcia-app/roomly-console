@@ -123,7 +123,7 @@ export function FrontdeskRoomsPage() {
       onLogout={() => logout()}
       role={role}
     >
-      <div className={`px-4 sm:px-6 lg:px-8 ${compactMode ? "py-4" : "py-5"}`}>
+      <div className={`min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 ${compactMode ? "py-4" : "py-5"}`}>
         {!isAdmin ? (
           <div className="rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             この画面は hotel_admin 権限のあるアカウントで利用できます

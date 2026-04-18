@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyHotelStaffIdentity } from "@/lib/server/hotel-auth";
 import { resolveHotelIdForStaff } from "@/lib/server/hearing-sheets";
-import { dispatchFrontdeskGuestMessagePush } from "@/lib/server/frontdesk-push";
+import { dispatchFrontdeskGuestMessagePush, parsePushDispatchThreadState } from "@/lib/server/frontdesk-push";
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -14,7 +14,17 @@ export async function POST(request: Request) {
       uid: identity.uid,
       claimedHotelId: identity.hotelId,
     });
-    const body = (await request.json().catch(() => ({}))) as Partial<{ dispatchKey: string; threadId: string }>;
+    const body = (await request.json().catch(() => ({}))) as Partial<{
+      category: string;
+      dispatchKey: string;
+      lastMessageBody: string;
+      lastMessageSender: string;
+      roomDisplayName: string;
+      roomId: string;
+      roomNumber: string;
+      threadId: string;
+      unreadCountFront: number;
+    }>;
 
     if (!body.threadId || !body.dispatchKey) {
       return jsonError("missing-required-fields", 400);
@@ -24,6 +34,7 @@ export async function POST(request: Request) {
       dispatchKey: body.dispatchKey,
       hotelId,
       threadId: body.threadId,
+      threadState: parsePushDispatchThreadState(body as Record<string, unknown>),
     });
 
     return NextResponse.json({ result });

@@ -80,25 +80,24 @@ function resolveProvidedGuestTranslation(params: {
 }
 
 async function resolveGuestLanguage(thread: Omit<ChatThreadRecord, "id">) {
-  const threadLanguage = readString(thread.guest_language);
-  if (threadLanguage) {
-    return threadLanguage;
-  }
-
-  const stayId = readString(thread.stay_id);
+  const rawThread = thread as Omit<ChatThreadRecord, "id"> & Record<string, unknown>;
+  const threadLanguage = readString(thread.guest_language) || readString(rawThread.guestLanguage);
+  const stayId = readString(thread.stay_id) || readString(thread.stayId);
   if (!stayId) {
-    return resolveHotelOperationLanguage();
+    return threadLanguage || resolveHotelOperationLanguage();
   }
 
   const staySnapshot = await getFirebaseAdminDb().collection("stays").doc(stayId).get();
   if (!staySnapshot.exists) {
-    return resolveHotelOperationLanguage();
+    return threadLanguage || resolveHotelOperationLanguage();
   }
 
-  const stayData = staySnapshot.data() ?? {};
+  const stayData = (staySnapshot.data() ?? {}) as Record<string, unknown>;
   return (
     readString(stayData.guest_language) ||
+    readString(stayData.guestLanguage) ||
     readString(stayData.language) ||
+    threadLanguage ||
     resolveHotelOperationLanguage()
   );
 }
@@ -187,8 +186,12 @@ export async function saveFrontDeskMessage(params: {
 
     const threadUpdate: Record<string, unknown> = {
       status: "in_progress",
-      guest_language: thread.guest_language ?? translation.targetLanguage,
-      guestLanguage: thread.guest_language ?? translation.targetLanguage,
+      handoff_status: "accepted",
+      handoffStatus: "accepted",
+      handoff_accepted_at: thread.handoff_accepted_at ?? FieldValue.serverTimestamp(),
+      handoffAcceptedAt: thread.handoff_accepted_at ?? FieldValue.serverTimestamp(),
+      guest_language: guestLanguage,
+      guestLanguage: guestLanguage,
       last_message_body: payload.body,
       lastMessageBody: payload.body,
       last_message_at: FieldValue.serverTimestamp(),

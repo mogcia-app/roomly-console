@@ -349,7 +349,7 @@ export function FrontdeskStayManagementPage() {
       onLogout={() => logout()}
       role={role}
     >
-      <div className={`px-4 py-5 sm:px-6 lg:px-8 ${compactMode ? "space-y-4" : "space-y-5"}`}>
+      <div className={`min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 ${compactMode ? "space-y-4" : "space-y-5"}`}>
         {!isAdmin ? (
           <div className="rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             この画面には `hotel_admin` 権限が必要です 現在の role: {role ?? "未設定"}
