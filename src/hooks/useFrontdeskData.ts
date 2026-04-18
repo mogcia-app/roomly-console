@@ -7,6 +7,7 @@ import {
   subscribeHotelStays,
   subscribeRecentThreads,
   subscribeHumanThreads,
+  subscribeStayMessages,
   subscribeThreadMessages,
 } from "@/lib/frontdesk/firestore";
 import { useRealtimeCollection } from "@/hooks/useRealtimeCollection";
@@ -36,6 +37,22 @@ export function useThreadMessages(threadId: string) {
 
   return useRealtimeCollection({
     enabled: Boolean(threadId),
+    subscribe,
+  });
+}
+
+export function useStayMessages(stayId: string) {
+  const subscribe = useMemo(
+    () =>
+      (
+        onData: Parameters<typeof subscribeStayMessages>[1],
+        onError: Parameters<typeof subscribeStayMessages>[2],
+      ) => subscribeStayMessages(stayId, onData, onError),
+    [stayId],
+  );
+
+  return useRealtimeCollection({
+    enabled: Boolean(stayId),
     subscribe,
   });
 }

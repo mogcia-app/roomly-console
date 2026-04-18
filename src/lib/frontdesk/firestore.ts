@@ -331,6 +331,43 @@ export function subscribeThreadMessages(
   );
 }
 
+export function subscribeStayMessages(
+  stayId: string,
+  onData: (messages: MessageRecord[]) => void,
+  onError: (error: Error) => void,
+) {
+  const db = getFirestoreDb();
+  const messagesById = new Map<string, MessageRecord>();
+
+  const emit = () => {
+    onData(
+      Array.from(messagesById.values()).sort(
+        (left, right) => (left.timestamp?.toDate().getTime() ?? 0) - (right.timestamp?.toDate().getTime() ?? 0),
+      ),
+    );
+  };
+
+  const subscribeToField = (field: "stay_id" | "stayId") =>
+    onSnapshot(
+      query(collection(db, "messages"), where(field, "==", stayId), orderBy("timestamp", "asc")),
+      (snapshot) => {
+        snapshot.docs.forEach((docSnapshot) => {
+          messagesById.set(docSnapshot.id, mapMessageRecord(docSnapshot.id, docSnapshot.data() as Record<string, unknown>));
+        });
+        emit();
+      },
+      onError,
+    );
+
+  const unsubscribeSnake = subscribeToField("stay_id");
+  const unsubscribeCamel = subscribeToField("stayId");
+
+  return () => {
+    unsubscribeSnake();
+    unsubscribeCamel();
+  };
+}
+
 async function getAuthorizationHeaders() {
   const auth = (await import("@/lib/firebase")).getFirebaseAuth();
   const currentUser = auth.currentUser;

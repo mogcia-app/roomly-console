@@ -82,7 +82,9 @@ export function FrontdeskShell({
             </div>
           </div>
         </header>
-        <div className={`px-0 py-0 ${useFixedLayout ? "min-h-0 flex-1 overflow-auto" : ""}`}>{children}</div>
+        <div className={`px-0 py-0 ${useFixedLayout ? "flex min-h-0 flex-1 flex-col overflow-hidden" : ""}`}>
+          {children}
+        </div>
       </main>
     </div>
   );

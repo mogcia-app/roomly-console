@@ -192,6 +192,67 @@ async function assertRoomBelongsToHotel(hotelId: string, roomId: string) {
   return roomSnapshot;
 }
 
+async function ensureHumanThreadForStay(params: {
+  hotelId: string;
+  stayId: string;
+  roomId: string;
+  roomNumber?: string | null;
+  roomDisplayName?: string | null;
+  guestLanguage?: string | null;
+}) {
+  const adminDb = getFirebaseAdminDb();
+  const threadRef = adminDb.collection("chat_threads").doc(`human_${params.stayId}`);
+  const snapshot = await threadRef.get();
+
+  if (snapshot.exists) {
+    return threadRef.id;
+  }
+
+  await threadRef.set({
+    hotel_id: params.hotelId,
+    hotelId: params.hotelId,
+    stay_id: params.stayId,
+    stayId: params.stayId,
+    room_id: params.roomId,
+    roomId: params.roomId,
+    room_number: params.roomNumber ?? null,
+    roomNumber: params.roomNumber ?? null,
+    room_display_name: params.roomDisplayName ?? null,
+    roomDisplayName: params.roomDisplayName ?? null,
+    mode: "human",
+    status: "new",
+    guest_language: params.guestLanguage ?? null,
+    guestLanguage: params.guestLanguage ?? null,
+    is_active: true,
+    isActive: true,
+    event_type: "chat_handoff_accepted",
+    last_message_body: "チェックイン済み / まだメッセージはありません",
+    lastMessageBody: "チェックイン済み / まだメッセージはありません",
+    last_message_at: null,
+    lastMessageAt: null,
+    last_message_sender: "system",
+    lastMessageSender: "system",
+    unread_count_front: 0,
+    unreadCountFront: 0,
+    unread_count_guest: 0,
+    unreadCountGuest: 0,
+    assigned_to: null,
+    assignedTo: null,
+    assigned_at: null,
+    assignedAt: null,
+    resolved_by: null,
+    resolvedBy: null,
+    resolved_at: null,
+    resolvedAt: null,
+    created_at: FieldValue.serverTimestamp(),
+    createdAt: FieldValue.serverTimestamp(),
+    updated_at: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return threadRef.id;
+}
+
 export async function listHotelRoomStatuses(hotelId: string, adminUid: string) {
   await autoCheckOutExpiredStays(hotelId, adminUid);
   const [rooms, activeStays] = await Promise.all([listHotelRooms(hotelId), listHotelActiveStays(hotelId)]);
@@ -242,7 +303,7 @@ export async function createStayCheckIn(params: {
     throw new Error("invalid-guest-count");
   }
 
-  await assertRoomBelongsToHotel(params.hotelId, params.roomId);
+  const roomSnapshot = await assertRoomBelongsToHotel(params.hotelId, params.roomId);
 
   const activeStays = (await listHotelActiveStays(params.hotelId)).filter((stay) => stay.room_id === params.roomId);
 
@@ -310,6 +371,16 @@ export async function createStayCheckIn(params: {
     createdAt: FieldValue.serverTimestamp(),
     updated_at: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  const roomData = roomSnapshot.data() ?? {};
+  await ensureHumanThreadForStay({
+    hotelId: params.hotelId,
+    stayId: stayRef.id,
+    roomId: params.roomId,
+    roomNumber: readNullableString(roomData.room_number) ?? readNullableString(roomData.roomNumber),
+    roomDisplayName: readNullableString(roomData.display_name) ?? readNullableString(roomData.displayName),
+    guestLanguage,
   });
 
   const snapshot = await stayRef.get();

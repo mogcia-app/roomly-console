@@ -21,7 +21,7 @@ import {
 } from "@/lib/frontdesk/format";
 import { FRONTDESK_NOTIFICATION_ENABLED_KEY } from "@/lib/frontdesk/preferences";
 import type { ChatThreadRecord, MessageRecord } from "@/lib/frontdesk/types";
-import { useHotelRooms, useHotelStays, useRecentThreads, useThreadMessages } from "@/hooks/useFrontdeskData";
+import { useHotelRooms, useHotelStays, useRecentThreads, useStayMessages, useThreadMessages } from "@/hooks/useFrontdeskData";
 import { useHotelAuth } from "@/hooks/useHotelAuth";
 import { useFrontdeskPushNotifications } from "@/hooks/useFrontdeskPushNotifications";
 import { useCompactModePreference } from "@/hooks/useFrontdeskPreferences";
@@ -35,8 +35,17 @@ type ActionState = {
 } | null;
 
 type MobilePane = "list" | "chat";
-type StayFilter = "active" | "checked_out" | "all";
-type ModeFilter = "all" | ChatThreadRecord["mode"];
+
+type ThreadGroup = {
+  id: string;
+  stayId: string;
+  primaryThread: ChatThreadRecord;
+  replyThread: ChatThreadRecord | null;
+  threads: ChatThreadRecord[];
+  unreadCountFront: number;
+  hasAiThread: boolean;
+  hasHumanThread: boolean;
+};
 
 function isEmergencyCategory(category?: string | null) {
   return (category ?? "").startsWith("emergency_");
@@ -191,19 +200,12 @@ function resolveMessageMeta(message: MessageRecord) {
   };
 }
 
-function resolveStayFilterLabel(filter: StayFilter) {
-  switch (filter) {
-    case "active":
-      return "滞在中";
-    case "checked_out":
-      return "済み";
-    default:
-      return "全履歴";
+function resolveGroupModeSummary(group: ThreadGroup) {
+  if (group.hasAiThread && group.hasHumanThread) {
+    return "AI / Staff";
   }
-}
 
-function resolveModeLabel(mode: ChatThreadRecord["mode"]) {
-  return mode === "ai" ? "AI" : "Staff";
+  return group.hasAiThread ? "AI" : "Staff";
 }
 
 function resolveThreadStayState(
@@ -245,15 +247,6 @@ function resolveThreadDispatchKey(thread: ChatThreadRecord) {
   return `${thread.id}:${timestampSegment}:${thread.last_message_sender ?? "unknown"}`;
 }
 
-function isArchivedCheckedOutStay(value: unknown) {
-  const archivedAt = toMillis(value);
-  if (!archivedAt) {
-    return false;
-  }
-
-  return Date.now() - archivedAt >= 24 * 60 * 60 * 1000;
-}
-
 function ThreadListCard({
   thread,
   guestName,
@@ -261,6 +254,8 @@ function ThreadListCard({
   isSelected,
   selectedByOther,
   stayState,
+  unreadCountFront,
+  modeSummary,
   onClick,
 }: {
   thread: ChatThreadRecord;
@@ -269,6 +264,8 @@ function ThreadListCard({
   isSelected: boolean;
   selectedByOther: boolean;
   stayState: "active" | "checked_out" | "unknown";
+  unreadCountFront: number;
+  modeSummary: string;
   onClick: () => void;
 }) {
   const roomInitial = roomLabel.slice(0, 1) || "客";
@@ -315,9 +312,13 @@ function ThreadListCard({
                 </span>
               ) : null}
               <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
-                thread.mode === "ai" ? "bg-[#f2e8ff] text-[#6c3baa]" : "bg-[#fff1ef] text-[#ad2218]"
+                modeSummary === "AI"
+                  ? "bg-[#f2e8ff] text-[#6c3baa]"
+                  : modeSummary === "Staff"
+                    ? "bg-[#fff1ef] text-[#ad2218]"
+                    : "bg-stone-200 text-stone-700"
               }`}>
-                {resolveModeLabel(thread.mode)}
+                {modeSummary}
               </span>
               <span>{thread.guest_language ? formatGuestLanguageLabel(thread.guest_language) : "言語未設定"}</span>
               {selectedByOther ? <span>他スタッフ対応中</span> : null}
@@ -327,7 +328,7 @@ function ThreadListCard({
                 </span>
               ) : null}
             </div>
-            {(thread.unread_count_front ?? 0) > 0 ? (
+            {unreadCountFront > 0 ? (
               <span className="block h-2.5 w-2.5 rounded-full bg-[#ad2218]" aria-label="未読あり" />
             ) : thread.emergency ? (
               <span className="rounded-full bg-[#fff3f1] px-2 py-1 text-[11px] font-semibold text-[#d14b3d]">緊急</span>
@@ -353,11 +354,6 @@ export function FrontdeskConsole() {
   );
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
-  const [stayFilter, setStayFilter] = useState<StayFilter>("active");
-  const [checkedOutCollapsed, setCheckedOutCollapsed] = useState(true);
-  const [archivedCollapsed, setArchivedCollapsed] = useState(true);
-  const [unreadOnly, setUnreadOnly] = useState(false);
-  const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [isPending, startUiTransition] = useTransition();
   const notifiedThreadIdsRef = useState(() => new Set<string>())[0];
   const pendingFallbackTranslationIdsRef = useState(() => new Set<string>())[0];
@@ -412,38 +408,55 @@ export function FrontdeskConsole() {
     () => new Map(hotelStays.data.map((stay) => [stay.id, stay.guest_name ?? null])),
     [hotelStays.data],
   );
-  const archivedStayIds = useMemo(
-    () =>
-      new Set(
-        hotelStays.data
-          .filter((stay) => stay.status === "checked_out" && isArchivedCheckedOutStay(stay.check_out_at))
-          .map((stay) => stay.id),
-      ),
-    [hotelStays.data],
-  );
-  const filteredThreads = useMemo(() => {
+  const groupedThreads = useMemo<ThreadGroup[]>(() => {
+    const groups = new Map<string, ChatThreadRecord[]>();
+
+    for (const thread of prioritizedThreads) {
+      const stayId = (thread.stay_id ?? thread.stayId ?? "").trim();
+      const key = stayId || `thread:${thread.id}`;
+      const current = groups.get(key) ?? [];
+      current.push(thread);
+      groups.set(key, current);
+    }
+
+    return Array.from(groups.entries())
+      .map(([key, threads]) => {
+        const sortedThreads = sortByPriority(threads);
+        const primaryThread = sortedThreads[0];
+
+        return {
+          id: key,
+          stayId: (primaryThread.stay_id ?? primaryThread.stayId ?? "").trim(),
+          primaryThread,
+          replyThread: sortedThreads.find((thread) => thread.mode === "human") ?? null,
+          threads: sortedThreads,
+          unreadCountFront: sortedThreads.reduce((sum, thread) => sum + (thread.unread_count_front ?? 0), 0),
+          hasAiThread: sortedThreads.some((thread) => thread.mode === "ai"),
+          hasHumanThread: sortedThreads.some((thread) => thread.mode === "human"),
+        };
+      })
+      .sort((left, right) => {
+        const priorityDiff = priorityValue(left.primaryThread) - priorityValue(right.primaryThread);
+        if (priorityDiff !== 0) {
+          return priorityDiff;
+        }
+
+        const rightLastMessageAt = toMillis(right.primaryThread.last_message_at);
+        const leftLastMessageAt = toMillis(left.primaryThread.last_message_at);
+
+        if (rightLastMessageAt !== leftLastMessageAt) {
+          return rightLastMessageAt - leftLastMessageAt;
+        }
+
+        return toMillis(right.primaryThread.updated_at) - toMillis(left.primaryThread.updated_at);
+      });
+  }, [prioritizedThreads]);
+  const filteredThreadGroups = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    return prioritizedThreads.filter((thread) => {
-      if (modeFilter !== "all" && thread.mode !== modeFilter) {
-        return false;
-      }
-
-      if (unreadOnly && (thread.unread_count_front ?? 0) <= 0) {
-        return false;
-      }
-
-      const stayState = resolveThreadStayState(thread, stayStates);
-      const stayId = (thread.stay_id ?? thread.stayId ?? "").trim();
-      const isArchived = stayId ? archivedStayIds.has(stayId) : false;
-      if (stayFilter === "active" && stayState !== "active") {
-        return false;
-      }
-
-      if (stayFilter === "checked_out" && (stayState !== "checked_out" || isArchived)) {
-        return false;
-      }
-
+    return groupedThreads.filter((group) => {
+      const thread = group.primaryThread;
+      const stayId = group.stayId;
       if (!query) {
         return true;
       }
@@ -454,9 +467,9 @@ export function FrontdeskConsole() {
         thread.room_display_name,
         roomDisplayNames,
       ).toLowerCase();
-      const category = (thread.category ?? "").toLowerCase();
-      const lang = (thread.guest_language ?? "").toLowerCase();
-      const langLabel = formatGuestLanguageLabel(thread.guest_language).toLowerCase();
+      const category = group.threads.map((item) => item.category ?? "").join(" ").toLowerCase();
+      const lang = group.threads.map((item) => item.guest_language ?? "").join(" ").toLowerCase();
+      const langLabel = group.threads.map((item) => formatGuestLanguageLabel(item.guest_language)).join(" ").toLowerCase();
       const guestName = ((stayGuestNames.get(stayId) ?? "") || "").toLowerCase();
       return (
         room.includes(query) ||
@@ -466,87 +479,46 @@ export function FrontdeskConsole() {
         guestName.includes(query)
       );
     });
-  }, [archivedStayIds, modeFilter, prioritizedThreads, roomDisplayNames, searchQuery, stayFilter, stayGuestNames, stayStates, unreadOnly]);
-  const activeThreadCount = useMemo(
-    () => prioritizedThreads.filter((thread) => resolveThreadStayState(thread, stayStates) === "active").length,
-    [prioritizedThreads, stayStates],
-  );
-  const checkedOutThreadCount = useMemo(
-    () => prioritizedThreads.filter((thread) => resolveThreadStayState(thread, stayStates) === "checked_out").length,
-    [prioritizedThreads, stayStates],
-  );
-  const visibleThreads = useMemo(() => {
-    if (stayFilter !== "all") {
-      return filteredThreads;
-    }
-
-    return filteredThreads.filter((thread) => {
-      const stayId = (thread.stay_id ?? thread.stayId ?? "").trim();
-      const stayState = resolveThreadStayState(thread, stayStates);
-      return stayState !== "checked_out" && (!stayId || !archivedStayIds.has(stayId));
-    });
-  }, [archivedStayIds, filteredThreads, stayFilter, stayStates]);
-  const collapsedCheckedOutThreads = useMemo(
-    () =>
-      stayFilter === "all"
-        ? filteredThreads.filter((thread) => {
-            const stayId = (thread.stay_id ?? thread.stayId ?? "").trim();
-            return resolveThreadStayState(thread, stayStates) === "checked_out" && (!stayId || !archivedStayIds.has(stayId));
-          })
-        : [],
-    [archivedStayIds, filteredThreads, stayFilter, stayStates],
-  );
-  const archivedThreads = useMemo(
-    () =>
-      stayFilter === "all"
-        ? filteredThreads.filter((thread) => {
-            const stayId = (thread.stay_id ?? thread.stayId ?? "").trim();
-            return Boolean(stayId && archivedStayIds.has(stayId));
-          })
-        : [],
-    [archivedStayIds, filteredThreads, stayFilter],
-  );
-  const selectedThread = useMemo(() => {
-    const explicitSelection = filteredThreads.find((thread) => thread.id === selectedThreadId);
+  }, [groupedThreads, roomDisplayNames, searchQuery, stayGuestNames]);
+  const selectedGroup = useMemo(() => {
+    const explicitSelection = filteredThreadGroups.find((group) => group.id === selectedThreadId);
     if (explicitSelection) {
       return explicitSelection;
     }
 
     if (requestedThreadId) {
-      return filteredThreads.find((thread) => thread.id === requestedThreadId) ?? null;
+      return filteredThreadGroups.find((group) => group.threads.some((thread) => thread.id === requestedThreadId)) ?? null;
     }
 
     if (requestedStayId) {
-      return filteredThreads.find((thread) => (thread.stay_id ?? thread.stayId ?? "") === requestedStayId) ?? null;
+      return filteredThreadGroups.find((group) => group.stayId === requestedStayId) ?? null;
     }
 
-    return filteredThreads[0] ?? null;
-  }, [filteredThreads, requestedStayId, requestedThreadId, selectedThreadId]);
-  const relatedThreads = useMemo(() => {
-    if (!selectedThread) {
-      return [];
-    }
-
-    const stayId = (selectedThread.stay_id ?? selectedThread.stayId ?? "").trim();
-    if (!stayId) {
-      return [];
-    }
-
-    return prioritizedThreads.filter(
-      (thread) =>
-        thread.id !== selectedThread.id &&
-        (thread.stay_id ?? thread.stayId ?? "").trim() === stayId,
-    );
-  }, [prioritizedThreads, selectedThread]);
+    return filteredThreadGroups[0] ?? null;
+  }, [filteredThreadGroups, requestedStayId, requestedThreadId, selectedThreadId]);
+  const selectedThread = selectedGroup?.primaryThread ?? null;
+  const selectedReplyThread = selectedGroup?.replyThread ?? null;
+  const selectedStayId = selectedGroup?.stayId ?? "";
   const effectiveSelectedThreadId = selectedThread?.id ?? "";
   const threadMessages = useThreadMessages(effectiveSelectedThreadId);
+  const stayMessages = useStayMessages(selectedStayId);
   const selectedThreadMessages = useMemo(
-    () => (selectedThread ? threadMessages.data : []),
-    [selectedThread, threadMessages.data],
+    () => {
+      if (!selectedGroup) {
+        return [];
+      }
+
+      const threadIds = new Set(selectedGroup.threads.map((thread) => thread.id));
+      const sourceMessages = selectedGroup.stayId ? stayMessages.data : threadMessages.data;
+
+      return sourceMessages.filter((message) => threadIds.has(message.thread_id));
+    },
+    [selectedGroup, stayMessages.data, threadMessages.data],
   );
+  const selectedMessagesState = selectedGroup?.stayId ? stayMessages : threadMessages;
   const hasConnectionContext = Boolean(hotelId && staffUserId && canOperate);
   const requestedStayHasThread = Boolean(
-    requestedStayId && filteredThreads.some((thread) => (thread.stay_id ?? thread.stayId ?? "") === requestedStayId),
+    requestedStayId && filteredThreadGroups.some((group) => group.stayId === requestedStayId),
   );
   const selectedRoomLabel = selectedThread
     ? resolveRoomLabel(
@@ -558,7 +530,7 @@ export function FrontdeskConsole() {
     : "";
 
   useEffect(() => {
-    if (!selectedThread || !hasConnectionContext) {
+    if (!selectedGroup || !selectedThread || !hasConnectionContext) {
       return;
     }
 
@@ -611,7 +583,7 @@ export function FrontdeskConsole() {
           pendingFallbackTranslationIdsRef.delete(message.id);
         });
     }
-  }, [fallbackTranslations, hasConnectionContext, pendingFallbackTranslationIdsRef, selectedThread, selectedThreadMessages]);
+  }, [fallbackTranslations, hasConnectionContext, pendingFallbackTranslationIdsRef, selectedGroup, selectedThread, selectedThreadMessages]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -708,27 +680,30 @@ export function FrontdeskConsole() {
   }, [hasConnectionContext, notifiedDispatchKeysRef, prioritizedThreads, pushNotifications.isSubscribed, user]);
 
   useEffect(() => {
-    if (!selectedThread || !hasConnectionContext) {
+    if (!selectedGroup || !hasConnectionContext) {
       return;
     }
 
-    if ((selectedThread.unread_count_front ?? 0) <= 0) {
+    const unreadThreads = selectedGroup.threads.filter((thread) => (thread.unread_count_front ?? 0) > 0);
+    if (unreadThreads.length === 0) {
       return;
     }
 
-    void markThreadSeenByFront(selectedThread.id);
-  }, [hasConnectionContext, selectedThread]);
+    unreadThreads.forEach((thread) => {
+      void markThreadSeenByFront(thread.id);
+    });
+  }, [hasConnectionContext, selectedGroup]);
 
   useEffect(() => {
-    if (!selectedThread || !hasConnectionContext) {
+    if (!selectedGroup || !hasConnectionContext) {
       return;
     }
 
-    if ((selectedThread.unread_count_front ?? 0) <= 0) {
+    if (selectedGroup.unreadCountFront <= 0) {
       return;
     }
 
-    const unreadGuestMessageIds = selectedThreadMessages
+    const unreadGuestMessages = selectedThreadMessages
       .filter((message) => {
         if (message.sender !== "guest") {
           return false;
@@ -742,17 +717,25 @@ export function FrontdeskConsole() {
           message.seen_at_guest ||
           message.seenAtGuest
         );
-      })
-      .map((message) => message.id);
+      });
 
-    if (unreadGuestMessageIds.length === 0) {
+    if (unreadGuestMessages.length === 0) {
       return;
     }
 
-    void markGuestMessagesRead(selectedThread.id, unreadGuestMessageIds).catch(() => {
-      // Ignore guest read sync failures here; the thread remains usable and can retry on next open.
+    const messageIdsByThread = new Map<string, string[]>();
+    unreadGuestMessages.forEach((message) => {
+      const current = messageIdsByThread.get(message.thread_id) ?? [];
+      current.push(message.id);
+      messageIdsByThread.set(message.thread_id, current);
     });
-  }, [hasConnectionContext, selectedThread, selectedThreadMessages]);
+
+    messageIdsByThread.forEach((messageIds, threadId) => {
+      void markGuestMessagesRead(threadId, messageIds).catch(() => {
+        // Ignore guest read sync failures here; the thread remains usable and can retry on next open.
+      });
+    });
+  }, [hasConnectionContext, selectedGroup, selectedThreadMessages]);
 
   if (authLoading) {
     return <FrontdeskAuthLoading title="管理画面ログイン" />;
@@ -895,64 +878,20 @@ export function FrontdeskConsole() {
         </div>
       </div>
 
-      <div className={`grid min-h-[calc(100dvh-182px)] px-3 pb-3 sm:px-6 lg:min-h-[calc(100vh-88px)] lg:grid-cols-[360px_minmax(0,1fr)] lg:px-6 xl:grid-cols-[390px_minmax(0,1fr)] ${compactMode ? "gap-2 pt-1 sm:pt-2 lg:gap-3 lg:pt-3" : "gap-3 pt-2 sm:pt-3 lg:gap-4 lg:pt-5"}`}>
-        <aside id="priority" className={`${mobilePane === "chat" ? "hidden" : "block"} lg:block`}>
-          <div className="overflow-hidden rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] shadow-[0_12px_30px_rgba(72,32,28,0.06)]">
-            <div className="border-b border-[#ecd2cf] bg-white px-4 py-4 sm:px-5 lg:px-5">
+      <div className={`grid min-h-0 flex-1 px-3 pb-3 sm:px-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:px-6 xl:grid-cols-[390px_minmax(0,1fr)] ${compactMode ? "gap-2 pt-1 sm:pt-2 lg:gap-3 lg:pt-3" : "gap-3 pt-2 sm:pt-3 lg:gap-4 lg:pt-5"}`}>
+        <aside id="priority" className={`min-h-0 ${mobilePane === "chat" ? "hidden" : "block"} lg:block`}>
+          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] shadow-[0_12px_30px_rgba(72,32,28,0.06)]">
+            <div className="shrink-0 border-b border-[#ecd2cf] bg-white px-4 py-4 sm:px-5 lg:px-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold text-stone-950 sm:text-xl">トーク一覧</h2>
                   <p className="text-sm text-stone-500">
-                    {resolveStayFilterLabel(stayFilter)} / 新着 {threadSummary.newCount} 件 / 緊急 {threadSummary.emergencyCount} 件
+                    新着 {threadSummary.newCount} / 緊急 {threadSummary.emergencyCount}
                   </p>
                 </div>
                 <span className="rounded-full bg-[#fff1ef] px-3 py-1 text-xs font-semibold text-[#ad2218]">
-                  {filteredThreads.length}
+                  {filteredThreadGroups.length}
                 </span>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {(["active", "checked_out", "all"] as const).map((filter) => (
-                  <button
-                    key={filter}
-                    type="button"
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                      stayFilter === filter
-                        ? "bg-[#ad2218] text-white"
-                        : "border border-[#e7d5d1] bg-white text-stone-600 hover:border-[#d8aaa4] hover:bg-[#fff3f1]"
-                    }`}
-                    onClick={() => setStayFilter(filter)}
-                  >
-                    {resolveStayFilterLabel(filter)}
-                    <span className="ml-1 opacity-80">
-                      {filter === "active" ? activeThreadCount : filter === "checked_out" ? checkedOutThreadCount : prioritizedThreads.length}
-                    </span>
-                  </button>
-                ))}
-                {(["all", "ai", "human"] as const).map((filter) => (
-                  <button
-                    key={filter}
-                    type="button"
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                      modeFilter === filter
-                        ? "bg-stone-950 text-white"
-                        : "border border-[#e7d5d1] bg-white text-stone-600 hover:border-[#d8aaa4] hover:bg-[#fff3f1]"
-                    }`}
-                    onClick={() => setModeFilter(filter)}
-                  >
-                    {filter === "all" ? "すべて" : filter === "ai" ? "AI" : "Staff"}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                    unreadOnly
-                      ? "bg-stone-950 text-white"
-                      : "border border-[#e7d5d1] bg-white text-stone-600 hover:border-[#d8aaa4] hover:bg-[#fff3f1]"
-                  }`}
-                  onClick={() => setUnreadOnly((current) => !current)}
-                >
-                  未読のみ
-                </button>
               </div>
               <div className="mt-4 flex items-center gap-2 rounded-full bg-[#fff3f1] px-4 py-3">
                 <span className="text-stone-400">🔎</span>
@@ -965,103 +904,35 @@ export function FrontdeskConsole() {
               </div>
             </div>
 
-            <div className={`overflow-y-auto lg:max-h-[calc(100vh-180px)] ${compactMode ? "space-y-2 p-2.5 lg:p-3" : "space-y-3 p-3 lg:p-4"}`}>
+            <div className={`min-h-0 flex-1 overflow-y-auto ${compactMode ? "space-y-2 p-2.5 lg:p-3" : "space-y-3 p-3 lg:p-4"}`}>
               {recentThreads.isLoading ? <p className="text-sm text-stone-500">一覧を読み込み中です</p> : null}
               {recentThreads.error ? <p className="text-sm text-rose-700">{recentThreads.error}</p> : null}
 
-              {visibleThreads.map((thread) => (
+              {filteredThreadGroups.map((group) => (
                 <ThreadListCard
-                  key={thread.id}
-                  thread={thread}
-                  guestName={stayGuestNames.get((thread.stay_id ?? thread.stayId ?? "").trim()) ?? null}
+                  key={group.id}
+                  thread={group.primaryThread}
+                  guestName={stayGuestNames.get(group.stayId) ?? null}
                   roomLabel={resolveRoomLabel(
-                    thread.room_id,
-                    thread.room_number,
-                    thread.room_display_name,
+                    group.primaryThread.room_id,
+                    group.primaryThread.room_number,
+                    group.primaryThread.room_display_name,
                     roomDisplayNames,
                   )}
-                  isSelected={selectedThread?.id === thread.id}
+                  isSelected={selectedGroup?.id === group.id}
                   selectedByOther={
-                    thread.status === "in_progress" && Boolean(thread.assigned_to && thread.assigned_to !== staffUserId)
+                    group.threads.some(
+                      (thread) => thread.status === "in_progress" && Boolean(thread.assigned_to && thread.assigned_to !== staffUserId),
+                    )
                   }
-                  stayState={resolveThreadStayState(thread, stayStates)}
-                  onClick={() => handleSelectThread(thread.id)}
+                  stayState={resolveThreadStayState(group.primaryThread, stayStates)}
+                  unreadCountFront={group.unreadCountFront}
+                  modeSummary={resolveGroupModeSummary(group)}
+                  onClick={() => handleSelectThread(group.id)}
                 />
               ))}
 
-              {stayFilter === "all" && collapsedCheckedOutThreads.length > 0 ? (
-                <div className="rounded-[8px] border border-[#ead8d5] bg-white">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between px-4 py-3 text-left"
-                    onClick={() => setCheckedOutCollapsed((current) => !current)}
-                  >
-                    <span className="text-sm font-semibold text-stone-900">済み {collapsedCheckedOutThreads.length}</span>
-                    <span className="text-xs text-stone-500">{checkedOutCollapsed ? "展開" : "折りたたむ"}</span>
-                  </button>
-                  {!checkedOutCollapsed ? (
-                    <div className={`border-t border-[#f1e5e3] ${compactMode ? "space-y-2 p-2.5" : "space-y-3 p-3"}`}>
-                      {collapsedCheckedOutThreads.map((thread) => (
-                        <ThreadListCard
-                          key={thread.id}
-                          thread={thread}
-                          guestName={stayGuestNames.get((thread.stay_id ?? thread.stayId ?? "").trim()) ?? null}
-                          roomLabel={resolveRoomLabel(
-                            thread.room_id,
-                            thread.room_number,
-                            thread.room_display_name,
-                            roomDisplayNames,
-                          )}
-                          isSelected={selectedThread?.id === thread.id}
-                          selectedByOther={
-                            thread.status === "in_progress" && Boolean(thread.assigned_to && thread.assigned_to !== staffUserId)
-                          }
-                          stayState={resolveThreadStayState(thread, stayStates)}
-                          onClick={() => handleSelectThread(thread.id)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {stayFilter === "all" && archivedThreads.length > 0 ? (
-                <div className="rounded-[8px] border border-[#ead8d5] bg-white">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between px-4 py-3 text-left"
-                    onClick={() => setArchivedCollapsed((current) => !current)}
-                  >
-                    <span className="text-sm font-semibold text-stone-900">アーカイブ {archivedThreads.length}</span>
-                    <span className="text-xs text-stone-500">{archivedCollapsed ? "展開" : "折りたたむ"}</span>
-                  </button>
-                  {!archivedCollapsed ? (
-                    <div className={`border-t border-[#f1e5e3] ${compactMode ? "space-y-2 p-2.5" : "space-y-3 p-3"}`}>
-                      {archivedThreads.map((thread) => (
-                        <ThreadListCard
-                          key={thread.id}
-                          thread={thread}
-                          guestName={stayGuestNames.get((thread.stay_id ?? thread.stayId ?? "").trim()) ?? null}
-                          roomLabel={resolveRoomLabel(
-                            thread.room_id,
-                            thread.room_number,
-                            thread.room_display_name,
-                            roomDisplayNames,
-                          )}
-                          isSelected={selectedThread?.id === thread.id}
-                          selectedByOther={
-                            thread.status === "in_progress" && Boolean(thread.assigned_to && thread.assigned_to !== staffUserId)
-                          }
-                          stayState={resolveThreadStayState(thread, stayStates)}
-                          onClick={() => handleSelectThread(thread.id)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {!recentThreads.isLoading && filteredThreads.length === 0 ? (
+              {!recentThreads.isLoading && filteredThreadGroups.length === 0 ? (
                 <p className="rounded-2xl border border-dashed border-[#ecd2cf] bg-white px-4 py-5 text-sm text-stone-500">
                   {requestedStayId && !requestedStayHasThread
                     ? "この滞在にはまだチャットがありません"
@@ -1072,9 +943,9 @@ export function FrontdeskConsole() {
           </div>
         </aside>
 
-        <section id="detail" className={`${mobilePane === "list" ? "hidden" : "block"} lg:block`}>
+        <section id="detail" className={`min-h-0 ${mobilePane === "list" ? "hidden" : "block"} lg:block`}>
           <div className="flex h-full flex-col overflow-hidden rounded-[8px] border border-[#ecd2cf] bg-white shadow-[0_12px_30px_rgba(72,32,28,0.06)]">
-            <div className="border-b border-[#ecd2cf] bg-white px-4 py-4 sm:px-6 lg:px-6">
+            <div className="shrink-0 border-b border-[#ecd2cf] bg-white px-4 py-4 sm:px-6 lg:px-6">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0 lg:flex-1">
                   <button
@@ -1094,23 +965,21 @@ export function FrontdeskConsole() {
                       <h2 className="truncate text-lg font-semibold text-stone-950">
                         {selectedThread ? selectedRoomLabel : "スレッド未選択"}
                       </h2>
-                      {selectedThread ? (
+                      {selectedGroup && selectedThread ? (
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone-500">
                           {isEmergencyCategory(selectedThread.category) ? (
                             <span className="rounded-full bg-[#ad2218] px-2 py-1 font-semibold text-white">
                               {resolveEmergencyLabel(selectedThread.category)}
                             </span>
                           ) : null}
-                          <span className={`rounded-full px-2 py-1 font-semibold ${
-                            selectedThread.mode === "ai" ? "bg-[#f2e8ff] text-[#6c3baa]" : "bg-[#fff1ef] text-[#ad2218]"
-                          }`}>
-                            {resolveModeLabel(selectedThread.mode)}
+                          <span className="rounded-full bg-stone-200 px-2 py-1 font-semibold text-stone-700">
+                            {resolveGroupModeSummary(selectedGroup)}
                           </span>
                           <span>{formatSenderLabel(selectedThread.last_message_sender ?? "system")}</span>
                           <span>{formatTime(selectedThread.last_message_at ?? selectedThread.updated_at)}</span>
-                          {stayGuestNames.get((selectedThread.stay_id ?? selectedThread.stayId ?? "").trim()) ? (
+                          {stayGuestNames.get(selectedStayId) ? (
                             <span>
-                              {stayGuestNames.get((selectedThread.stay_id ?? selectedThread.stayId ?? "").trim())}
+                              {stayGuestNames.get(selectedStayId)}
                             </span>
                           ) : null}
                         </div>
@@ -1125,8 +994,8 @@ export function FrontdeskConsole() {
               </div>
             </div>
 
-            <div className="flex min-h-[calc(100dvh-318px)] flex-col lg:min-h-[calc(100vh-210px)]">
-              <div className={`flex-1 overflow-y-auto bg-white sm:px-5 lg:px-6 ${compactMode ? "space-y-3 px-4 py-4 lg:py-4" : "space-y-4 px-4 py-5 lg:py-6"}`}>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className={`min-h-0 flex-1 overflow-y-auto bg-white sm:px-5 lg:px-6 ${compactMode ? "space-y-3 px-4 py-4 lg:py-4" : "space-y-4 px-4 py-5 lg:py-6"}`}>
                 <div className="flex items-center justify-between gap-3 lg:hidden">
                   <button
                     type="button"
@@ -1136,16 +1005,16 @@ export function FrontdeskConsole() {
                     一覧へ戻る
                   </button>
                 </div>
-                {selectedThreadId && threadMessages.isLoading ? (
+                {selectedThreadId && selectedMessagesState.isLoading ? (
                   <p className="text-sm text-stone-500">メッセージを読み込み中です</p>
                 ) : null}
-                {threadMessages.error ? <p className="text-sm text-rose-500">{threadMessages.error}</p> : null}
+                {selectedMessagesState.error ? <p className="text-sm text-rose-500">{selectedMessagesState.error}</p> : null}
                 {!selectedThread ? (
                   <div className="rounded-[8px] border border-dashed border-[#e6c8c4] bg-white/80 px-4 py-8 text-center text-sm text-stone-500">
                     左のトーク一覧から問い合わせを選択すると会話が表示されます
                   </div>
                 ) : null}
-                {selectedThread && selectedThreadMessages.length === 0 && !threadMessages.isLoading ? (
+                {selectedThread && selectedThreadMessages.length === 0 && !selectedMessagesState.isLoading ? (
                   <div className="rounded-[8px] border border-dashed border-[#e6c8c4] bg-white/80 px-4 py-8 text-center text-sm text-stone-500">
                     まだメッセージがありません
                   </div>
@@ -1158,26 +1027,6 @@ export function FrontdeskConsole() {
                     </p>
                   </div>
                 ) : null}
-                {selectedThread && relatedThreads.length > 0 ? (
-                  <div className="rounded-[8px] border border-[#ead8d5] bg-[#fff8f7] px-4 py-3 text-sm text-stone-700">
-                    <p className="font-semibold text-stone-900">
-                      {selectedThread.mode === "ai" ? "関連する Staff スレッド" : "関連する AI スレッド"}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {relatedThreads.map((thread) => (
-                        <button
-                          key={thread.id}
-                          type="button"
-                          className="rounded-full border border-[#e7d5d1] bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 transition hover:border-[#d8aaa4] hover:bg-[#fff3f1]"
-                          onClick={() => handleSelectThread(thread.id)}
-                        >
-                          {resolveModeLabel(thread.mode)} / {formatTime(thread.last_message_at ?? thread.updated_at)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
                 {selectedThreadMessages.map((message) => {
                   const isFront = message.sender === "front";
                   const displayBody = resolveFrontMessageBody(message);
@@ -1270,9 +1119,9 @@ export function FrontdeskConsole() {
                     <p className="mt-2 text-xs text-stone-500">テンプレ: {selectedTemplate}</p>
                   ) : null}
                 </div>
-                {selectedThread?.mode === "ai" ? (
+                {!selectedReplyThread ? (
                   <p className="mb-2 text-xs text-stone-500">
-                    AI 対応スレッドは閲覧専用です。human に引き継がれた後にスタッフ返信できます。
+                    この滞在にはまだ Staff 用スレッドがありません。human に引き継がれた後にスタッフ返信できます。
                   </p>
                 ) : null}
                 <div className="flex items-end gap-3">
@@ -1282,18 +1131,18 @@ export function FrontdeskConsole() {
                     value={draftMessage}
                     onChange={(event) => setDraftMessage(event.target.value)}
                     placeholder="メッセージを入力"
-                    disabled={!selectedThread || selectedThread.mode === "ai"}
+                    disabled={!selectedReplyThread}
                   />
                   <button
                     type="button"
                     className="grid h-12 min-w-12 shrink-0 place-items-center rounded-[8px] bg-[#ad2218] px-4 text-sm font-semibold text-white shadow-[0_10px_20px_rgba(173,34,24,0.22)] transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:shadow-none sm:min-w-24"
-                    disabled={!selectedThread || selectedThread.mode === "ai" || !hasConnectionContext || isPending || !draftMessage.trim()}
+                    disabled={!selectedReplyThread || !hasConnectionContext || isPending || !draftMessage.trim()}
                     onClick={() =>
-                      selectedThread &&
+                      selectedReplyThread && selectedThread &&
                       (() => {
-                        setSelectedThreadId(selectedThread.id);
+                        setSelectedThreadId(selectedGroup?.id ?? selectedReplyThread.id);
                         void runAction(async () => {
-                          await sendFrontMessage(selectedThread.id, staffUserId, draftMessage);
+                          await sendFrontMessage(selectedReplyThread.id, staffUserId, draftMessage);
                           setDraftMessage("");
                         }, `${resolveRoomLabel(
                           selectedThread.room_id,
