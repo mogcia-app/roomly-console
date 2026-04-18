@@ -198,12 +198,7 @@ function resolveMessageMeta(message: MessageRecord) {
 }
 
 function shouldHideFrontdeskMessage(message: MessageRecord) {
-  if (message.sender !== "system") {
-    return false;
-  }
-
-  const body = (message.body ?? "").trim();
-  return body === "The front desk has been notified. Please wait for a reply.";
+  return message.sender === "system";
 }
 
 function resolveThreadStayState(
