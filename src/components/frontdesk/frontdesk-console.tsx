@@ -605,6 +605,20 @@ export function FrontdeskConsole() {
     });
   }, [hasConnectionContext, selectedGroup]);
 
+  useEffect(() => {
+    if (!actionState) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setActionState(null);
+    }, 3000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [actionState]);
+
   if (authLoading) {
     return <FrontdeskAuthLoading title="管理画面ログイン" />;
   }
