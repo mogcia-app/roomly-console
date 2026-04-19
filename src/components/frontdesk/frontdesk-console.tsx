@@ -8,6 +8,7 @@ import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
 import { FrontdeskAuthLoading } from "@/components/frontdesk/frontdesk-auth-loading";
 import { FrontdeskShell } from "@/components/frontdesk/frontdesk-shell";
 import {
+  markEmergencyThreadHandled,
   markThreadSeenByFront,
   requestTranslationPreview,
   sendFrontMessage,
@@ -906,6 +907,22 @@ export function FrontdeskConsole() {
                     ) : null}
                   </div>
                 </div>
+                {selectedThread && isEmergencyThread(selectedThread) ? (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      className="rounded-[8px] border border-[#d6b1ac] bg-[#fff3f1] px-4 py-2 text-sm font-semibold text-[#8b2e26] transition hover:border-[#bf7f77] hover:bg-[#ffe6e2] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!hasConnectionContext || isPending || selectedReplyAssignedToOther}
+                      onClick={() =>
+                        void runAction(async () => {
+                          await markEmergencyThreadHandled(selectedThread.id, staffUserId);
+                        }, `${selectedRoomLabel} の緊急対応を完了にしました`)
+                      }
+                    >
+                      対応済みにする
+                    </button>
+                  </div>
+                ) : null}
 
               </div>
             </div>

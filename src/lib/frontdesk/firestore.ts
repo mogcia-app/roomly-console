@@ -524,6 +524,44 @@ export async function resolveHumanThread(threadId: string, staffUserId: string) 
   });
 }
 
+export async function markEmergencyThreadHandled(threadId: string, staffUserId: string) {
+  const db = getFirestoreDb();
+  const threadRef = doc(db, "chat_threads", threadId);
+
+  await runTransaction(db, async (transaction) => {
+    const threadSnapshot = await transaction.get(threadRef);
+
+    if (!threadSnapshot.exists()) {
+      throw new Error("thread-not-found");
+    }
+
+    const thread = threadSnapshot.data() as Omit<ChatThreadRecord, "id">;
+
+    if (thread.status === "in_progress" && thread.assigned_to && thread.assigned_to !== staffUserId) {
+      throw new Error("thread-assigned");
+    }
+
+    transaction.update(threadRef, {
+      emergency: false,
+      category:
+        typeof thread.category === "string" && thread.category.startsWith("emergency_")
+          ? null
+          : thread.category ?? null,
+      status: thread.status === "resolved" ? "in_progress" : (thread.status ?? "in_progress"),
+      assignedTo: staffUserId,
+      assigned_to: staffUserId,
+      assignedAt: thread.assigned_at ?? serverTimestamp(),
+      assigned_at: thread.assigned_at ?? serverTimestamp(),
+      resolvedBy: null,
+      resolved_by: null,
+      resolvedAt: null,
+      resolved_at: null,
+      updatedAt: serverTimestamp(),
+      updated_at: serverTimestamp(),
+    });
+  });
+}
+
 export async function sendFrontMessage(
   threadId: string,
   _staffUserId: string,
