@@ -352,6 +352,7 @@ export function FrontdeskConsole() {
   const [isPending, startUiTransition] = useTransition();
   const pendingFallbackTranslationIdsRef = useState(() => new Set<string>())[0];
   const emergencyAlertThreadIdsRef = useState(() => new Set<string>())[0];
+  const messagesViewportRef = useRef<HTMLDivElement | null>(null);
   const messagesBottomRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const lastRenderedMessageKeyRef = useRef("");
@@ -569,6 +570,26 @@ export function FrontdeskConsole() {
       )
     : "";
 
+  function scrollMessagesToBottom(behavior: ScrollBehavior) {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const viewport = messagesViewportRef.current;
+
+      if (!viewport) {
+        messagesBottomRef.current?.scrollIntoView({ behavior, block: "end" });
+        return;
+      }
+
+      viewport.scrollTo({
+        top: viewport.scrollHeight,
+        behavior,
+      });
+    });
+  }
+
   useEffect(() => {
     if (!selectedGroup || !selectedThread || !hasConnectionContext) {
       return;
@@ -671,7 +692,7 @@ export function FrontdeskConsole() {
   useEffect(() => {
     shouldStickToBottomRef.current = true;
     lastRenderedMessageKeyRef.current = "";
-    messagesBottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    scrollMessagesToBottom("auto");
   }, [selectedGroup?.id]);
 
   useEffect(() => {
@@ -686,7 +707,7 @@ export function FrontdeskConsole() {
     lastRenderedMessageKeyRef.current = nextKey;
 
     if (shouldScroll) {
-      messagesBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      scrollMessagesToBottom("smooth");
     }
   }, [visibleMessages]);
 
@@ -929,6 +950,7 @@ export function FrontdeskConsole() {
 
             <div className="flex min-h-0 flex-1 flex-col">
               <div
+                ref={messagesViewportRef}
                 className={`min-h-0 flex-1 overflow-y-auto bg-white sm:px-5 lg:px-6 ${compactMode ? "space-y-3 px-4 py-4 lg:py-4" : "space-y-4 px-4 py-5 lg:py-6"}`}
                 onScroll={(event) => {
                   const target = event.currentTarget;
@@ -1106,7 +1128,7 @@ export function FrontdeskConsole() {
                             },
                           ]);
                           shouldStickToBottomRef.current = true;
-                          messagesBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+                          scrollMessagesToBottom("smooth");
                           try {
                             await sendFrontMessage(selectedReplyThread.id, staffUserId, trimmedDraftMessage);
                           } catch (error) {
