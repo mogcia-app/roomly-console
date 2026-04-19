@@ -138,10 +138,6 @@ export async function saveFrontDeskMessage(params: {
     throw new Error("unsupported-thread-mode");
   }
 
-  if (thread.status === "resolved") {
-    throw new Error("thread-resolved");
-  }
-
   if (params.staffUserId && thread.status === "in_progress" && thread.assigned_to && thread.assigned_to !== params.staffUserId) {
     throw new Error("thread-assigned");
   }
@@ -211,6 +207,13 @@ export async function saveFrontDeskMessage(params: {
       threadUpdate.assignedTo = params.staffUserId;
       threadUpdate.assigned_at = thread.assigned_at ?? FieldValue.serverTimestamp();
       threadUpdate.assignedAt = thread.assigned_at ?? FieldValue.serverTimestamp();
+    }
+
+    if (thread.status === "resolved") {
+      threadUpdate.resolved_by = null;
+      threadUpdate.resolvedBy = null;
+      threadUpdate.resolved_at = null;
+      threadUpdate.resolvedAt = null;
     }
 
     transaction.update(threadRef, threadUpdate);

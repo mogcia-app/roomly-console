@@ -220,7 +220,11 @@ function resolveThreadStayState(
 }
 
 function resolveReplyThread(threads: ChatThreadRecord[]) {
-  return threads.find((thread) => thread.mode === "human" && thread.status !== "resolved") ?? null;
+  return (
+    threads.find((thread) => thread.mode === "human" && thread.status !== "resolved") ??
+    threads.find((thread) => thread.mode === "human") ??
+    null
+  );
 }
 
 function isAssignedToOtherStaff(thread: ChatThreadRecord | null, staffUserId: string) {
