@@ -341,20 +341,35 @@ export function subscribeThreadMessages(
   onError: (error: Error) => void,
 ) {
   const db = getFirestoreDb();
-  const constraints: QueryConstraint[] = [
-    where("thread_id", "==", threadId),
-    orderBy("timestamp", "asc"),
-  ];
+  const messagesById = new Map<string, MessageRecord>();
 
-  return onSnapshot(
-    query(collection(db, "messages"), ...constraints),
-    (snapshot) => {
-      onData(
-        snapshot.docs.map((docSnapshot) => mapMessageRecord(docSnapshot.id, docSnapshot.data() as Record<string, unknown>)),
-      );
-    },
-    onError,
-  );
+  const emit = () => {
+    onData(
+      Array.from(messagesById.values()).sort(
+        (left, right) => (left.timestamp?.toDate().getTime() ?? 0) - (right.timestamp?.toDate().getTime() ?? 0),
+      ),
+    );
+  };
+
+  const subscribeToField = (field: "thread_id" | "threadId") =>
+    onSnapshot(
+      query(collection(db, "messages"), where(field, "==", threadId), orderBy("timestamp", "asc")),
+      (snapshot) => {
+        snapshot.docs.forEach((docSnapshot) => {
+          messagesById.set(docSnapshot.id, mapMessageRecord(docSnapshot.id, docSnapshot.data() as Record<string, unknown>));
+        });
+        emit();
+      },
+      onError,
+    );
+
+  const unsubscribeSnake = subscribeToField("thread_id");
+  const unsubscribeCamel = subscribeToField("threadId");
+
+  return () => {
+    unsubscribeSnake();
+    unsubscribeCamel();
+  };
 }
 
 export function subscribeStayMessages(
@@ -529,11 +544,17 @@ export async function sendFrontMessage(
     }),
   });
 
-  const payload = (await response.json()) as { error?: string };
+  const payload = (await response.json()) as { error?: string; message?: { id?: string } };
 
   if (!response.ok) {
     throw new Error(payload.error ?? "failed-to-send-front-message");
   }
+
+  return {
+    id: payload.message?.id ?? "",
+    body: trimmedBody,
+    threadId,
+  };
 }
 
 export async function requestTranslationPreview(params: {

@@ -1,6 +1,7 @@
 "use client";
 
-import { startTransition, useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
+import { Timestamp } from "firebase/firestore";
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { HotelAuthCard } from "@/components/auth/hotel-auth-card";
@@ -42,6 +43,11 @@ type ThreadGroup = {
   unreadCountFront: number;
   hasAiThread: boolean;
   hasHumanThread: boolean;
+};
+
+type OptimisticMessage = MessageRecord & {
+  optimistic: true;
+  timestamp: Timestamp;
 };
 
 function isEmergencyCategory(category?: string | null) {
@@ -312,9 +318,13 @@ export function FrontdeskConsole() {
   );
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [fallbackTranslations, setFallbackTranslations] = useState<Record<string, string>>({});
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   const [isPending, startUiTransition] = useTransition();
   const pendingFallbackTranslationIdsRef = useState(() => new Set<string>())[0];
   const emergencyAlertThreadIdsRef = useState(() => new Set<string>())[0];
+  const messagesBottomRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
+  const lastRenderedMessageKeyRef = useRef("");
   const [compactMode] = useCompactModePreference();
   const role = claims?.role;
   const canOperate = role === "hotel_front" || role === "hotel_admin";
@@ -489,6 +499,28 @@ export function FrontdeskConsole() {
     },
     [selectedGroup, shouldUseStayMessages, stayMessages.data, threadMessages.data],
   );
+  const visibleMessages = useMemo(() => {
+    if (!selectedGroup) {
+      return [];
+    }
+
+    const threadIds = new Set(selectedGroup.threads.map((thread) => thread.id));
+    const confirmedFrontMessages = new Set(
+      selectedThreadMessages
+        .filter((message) => message.sender === "front")
+        .map((message) => `${message.thread_id}:${message.original_body ?? message.body}`),
+    );
+    const relatedOptimisticMessages = optimisticMessages.filter(
+      (message) =>
+        threadIds.has(message.thread_id) &&
+        !confirmedFrontMessages.has(`${message.thread_id}:${message.original_body ?? message.body}`),
+    );
+    const existingMessageIds = new Set(selectedThreadMessages.map((message) => message.id));
+
+    return [...selectedThreadMessages, ...relatedOptimisticMessages.filter((message) => !existingMessageIds.has(message.id))].sort(
+      (left, right) => (left.timestamp?.toDate().getTime() ?? 0) - (right.timestamp?.toDate().getTime() ?? 0),
+    );
+  }, [optimisticMessages, selectedGroup, selectedThreadMessages]);
   const selectedMessagesState = shouldUseStayMessages ? stayMessages : threadMessages;
   const hasConnectionContext = Boolean(hotelId && staffUserId && canOperate);
   const requestedStayHasThread = Boolean(
@@ -576,8 +608,20 @@ export function FrontdeskConsole() {
       return;
     }
 
+    const activeEmergencyThreadIds = new Set(
+      prioritizedThreads
+        .filter((thread) => isEmergencyThread(thread) && (thread.unread_count_front ?? 0) > 0)
+        .map((thread) => thread.id),
+    );
+
+    emergencyAlertThreadIdsRef.forEach((threadId) => {
+      if (!activeEmergencyThreadIds.has(threadId)) {
+        emergencyAlertThreadIdsRef.delete(threadId);
+      }
+    });
+
     const shouldAlert = prioritizedThreads.some((thread) => {
-      if (!isEmergencyThread(thread) || (thread.unread_count_front ?? 0) <= 0) {
+      if (!activeEmergencyThreadIds.has(thread.id)) {
         return false;
       }
 
@@ -593,6 +637,28 @@ export function FrontdeskConsole() {
       playEmergencyAlertTone();
     }
   }, [emergencyAlertThreadIdsRef, prioritizedThreads]);
+
+  useEffect(() => {
+    shouldStickToBottomRef.current = true;
+    lastRenderedMessageKeyRef.current = "";
+    messagesBottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+  }, [selectedGroup?.id]);
+
+  useEffect(() => {
+    const lastMessage = visibleMessages[visibleMessages.length - 1];
+    const nextKey = lastMessage ? `${lastMessage.id}:${lastMessage.timestamp?.toDate().getTime() ?? 0}` : "";
+
+    if (nextKey === lastRenderedMessageKeyRef.current) {
+      return;
+    }
+
+    const shouldScroll = !lastRenderedMessageKeyRef.current || shouldStickToBottomRef.current || lastMessage?.sender === "front";
+    lastRenderedMessageKeyRef.current = nextKey;
+
+    if (shouldScroll) {
+      messagesBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [visibleMessages]);
 
   useEffect(() => {
     if (!selectedGroup || !hasConnectionContext) {
@@ -816,7 +882,14 @@ export function FrontdeskConsole() {
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className={`min-h-0 flex-1 overflow-y-auto bg-white sm:px-5 lg:px-6 ${compactMode ? "space-y-3 px-4 py-4 lg:py-4" : "space-y-4 px-4 py-5 lg:py-6"}`}>
+              <div
+                className={`min-h-0 flex-1 overflow-y-auto bg-white sm:px-5 lg:px-6 ${compactMode ? "space-y-3 px-4 py-4 lg:py-4" : "space-y-4 px-4 py-5 lg:py-6"}`}
+                onScroll={(event) => {
+                  const target = event.currentTarget;
+                  const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                  shouldStickToBottomRef.current = distanceToBottom < 80;
+                }}
+              >
                 <div className="flex items-center justify-between gap-3 lg:hidden">
                   <button
                     type="button"
@@ -835,7 +908,7 @@ export function FrontdeskConsole() {
                     左のトーク一覧から問い合わせを選択すると会話が表示されます
                   </div>
                 ) : null}
-                {selectedThread && selectedThreadMessages.length === 0 && !selectedMessagesState.isLoading ? (
+                {selectedThread && visibleMessages.length === 0 && !selectedMessagesState.isLoading ? (
                   <div className="px-4 py-8 text-center text-sm text-stone-500">
                     まだメッセージがありません
                   </div>
@@ -848,7 +921,7 @@ export function FrontdeskConsole() {
                     </p>
                   </div>
                 ) : null}
-                {selectedThreadMessages.map((message) => {
+                {visibleMessages.map((message) => {
                   const isFront = message.sender === "front";
                   const displayBody = resolveFrontMessageBody(message);
                   const meta = resolveMessageMeta(message);
@@ -904,6 +977,7 @@ export function FrontdeskConsole() {
                     </article>
                   );
                 })}
+                <div ref={messagesBottomRef} />
               </div>
 
               <div className={`border-t border-[#ecd2cf] bg-white px-4 sm:px-6 lg:px-6 ${compactMode ? "py-2.5" : "py-3"}`}>
@@ -964,7 +1038,35 @@ export function FrontdeskConsole() {
                       (() => {
                         setSelectedThreadId(selectedGroup?.id ?? selectedReplyThread.id);
                         void runAction(async () => {
-                          await sendFrontMessage(selectedReplyThread.id, staffUserId, draftMessage);
+                          const trimmedDraftMessage = draftMessage.trim();
+                          const createdAt = new Date();
+                          const optimisticMessageId = `optimistic:${selectedReplyThread.id}:${createdAt.getTime()}`;
+
+                          setOptimisticMessages((current) => [
+                            ...current.slice(-19),
+                            {
+                              id: optimisticMessageId,
+                              optimistic: true,
+                              thread_id: selectedReplyThread.id,
+                              stay_id: selectedThread.stay_id ?? selectedThread.stayId,
+                              room_id: selectedThread.room_id ?? selectedThread.roomId,
+                              sender: "front",
+                              body: trimmedDraftMessage,
+                              original_body: trimmedDraftMessage,
+                              translated_body_front: trimmedDraftMessage,
+                              translated_body_guest: trimmedDraftMessage,
+                              translation_state: "not_required",
+                              timestamp: Timestamp.fromDate(createdAt),
+                            },
+                          ]);
+                          shouldStickToBottomRef.current = true;
+                          messagesBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+                          try {
+                            await sendFrontMessage(selectedReplyThread.id, staffUserId, trimmedDraftMessage);
+                          } catch (error) {
+                            setOptimisticMessages((current) => current.filter((message) => message.id !== optimisticMessageId));
+                            throw error;
+                          }
                           setDraftMessage("");
                         }, `${resolveRoomLabel(
                           selectedThread.room_id,
