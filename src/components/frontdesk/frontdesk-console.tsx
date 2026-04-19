@@ -90,7 +90,32 @@ function priorityValue(item: { emergency?: boolean; status?: string; category?: 
 }
 
 function toMillis(value: unknown) {
+  if (!value) {
+    return 0;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? 0 : value.getTime();
+  }
+
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+  }
+
   if (!value || typeof value !== "object" || !("toDate" in value) || typeof value.toDate !== "function") {
+    if (typeof value === "object") {
+      const timestampLike = value as { seconds?: number; _seconds?: number };
+      const seconds =
+        typeof timestampLike.seconds === "number"
+          ? timestampLike.seconds
+          : typeof timestampLike._seconds === "number"
+            ? timestampLike._seconds
+            : null;
+
+      return seconds === null ? 0 : seconds * 1000;
+    }
+
     return 0;
   }
 
@@ -114,7 +139,7 @@ function sortByPriority<T extends { emergency?: boolean; status?: string; update
       return rightLastMessageAt - leftLastMessageAt;
     }
 
-    return (right.updated_at?.toDate().getTime() ?? 0) - (left.updated_at?.toDate().getTime() ?? 0);
+    return toMillis(right.updated_at) - toMillis(left.updated_at);
   });
 }
 
@@ -522,7 +547,7 @@ export function FrontdeskConsole() {
     const existingMessageIds = new Set(selectedThreadMessages.map((message) => message.id));
 
     return [...selectedThreadMessages, ...relatedOptimisticMessages.filter((message) => !existingMessageIds.has(message.id))].sort(
-      (left, right) => (left.timestamp?.toDate().getTime() ?? 0) - (right.timestamp?.toDate().getTime() ?? 0),
+      (left, right) => toMillis(left.timestamp) - toMillis(right.timestamp),
     );
   }, [optimisticMessages, selectedGroup, selectedThreadMessages]);
   const selectedMessagesState = shouldUseStayMessages ? stayMessages : threadMessages;
@@ -650,7 +675,7 @@ export function FrontdeskConsole() {
 
   useEffect(() => {
     const lastMessage = visibleMessages[visibleMessages.length - 1];
-    const nextKey = lastMessage ? `${lastMessage.id}:${lastMessage.timestamp?.toDate().getTime() ?? 0}` : "";
+    const nextKey = lastMessage ? `${lastMessage.id}:${toMillis(lastMessage.timestamp)}` : "";
 
     if (nextKey === lastRenderedMessageKeyRef.current) {
       return;
