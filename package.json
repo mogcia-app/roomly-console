@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "functions:check": "node --check functions/index.js",
+    "functions:install": "npm install --prefix functions",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:firestore": "firebase deploy --only firestore:rules,firestore:indexes"
   },
   "dependencies": {
     "firebase": "^12.11.0",

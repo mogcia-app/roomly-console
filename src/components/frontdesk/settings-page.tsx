@@ -18,6 +18,12 @@ type OperationsInfoResponse = {
   operationsInfo?: OperationsInfoRecord;
 };
 
+type NotificationSettingsResponse = {
+  error?: string;
+  notificationEmails?: string[];
+  usesFallbackRecipients?: boolean;
+};
+
 type OperationsInfoState = {
   data: OperationsInfoRecord;
   error: string | null;
@@ -25,11 +31,31 @@ type OperationsInfoState = {
   isLoading: boolean;
 };
 
+type NotificationSettingsState = {
+  error: string | null;
+  isLoading: boolean;
+  notificationEmails: string;
+  isSaving: boolean;
+  saveError: string | null;
+  saveMessage: string | null;
+  usesFallbackRecipients: boolean;
+};
+
 const initialOperationsInfoState: OperationsInfoState = {
   data: createEmptyOperationsInfo(),
   error: null,
   hotelId: "",
   isLoading: false,
+};
+
+const initialNotificationSettingsState: NotificationSettingsState = {
+  error: null,
+  isLoading: false,
+  notificationEmails: "",
+  isSaving: false,
+  saveError: null,
+  saveMessage: null,
+  usesFallbackRecipients: true,
 };
 
 const operationsSectionOrder: Array<{ key: OperationsInfoKey; title: string }> = [
@@ -221,6 +247,9 @@ export function FrontdeskSettingsPage() {
   const [passwordActionError, setPasswordActionError] = useState<string | null>(null);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [operationsInfoState, setOperationsInfoState] = useState<OperationsInfoState>(initialOperationsInfoState);
+  const [notificationSettingsState, setNotificationSettingsState] = useState<NotificationSettingsState>(
+    initialNotificationSettingsState,
+  );
   const replyTemplatesState = useHotelReplyTemplates(Boolean(user));
   const [replyTemplatesActionMessage, setReplyTemplatesActionMessage] = useState<string | null>(null);
   const [replyTemplatesActionError, setReplyTemplatesActionError] = useState<string | null>(null);
@@ -306,6 +335,66 @@ export function FrontdeskSettingsPage() {
     };
   }, [user]);
 
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadNotificationSettings() {
+      if (!user) {
+        if (isActive) {
+          setNotificationSettingsState(initialNotificationSettingsState);
+        }
+        return;
+      }
+
+      setNotificationSettingsState((current) => ({
+        ...current,
+        error: null,
+        isLoading: true,
+        saveError: null,
+        saveMessage: null,
+      }));
+
+      try {
+        const response = await authorizedFetch("/api/frontdesk/notification-settings");
+        const payload = (await response.json()) as NotificationSettingsResponse;
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "failed-to-load-notification-settings");
+        }
+
+        if (!isActive) {
+          return;
+        }
+
+        setNotificationSettingsState({
+          error: null,
+          isLoading: false,
+          isSaving: false,
+          notificationEmails: (payload.notificationEmails ?? []).join("\n"),
+          saveError: null,
+          saveMessage: null,
+          usesFallbackRecipients: payload.usesFallbackRecipients !== false,
+        });
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        setNotificationSettingsState({
+          ...initialNotificationSettingsState,
+          error: error instanceof Error ? error.message : "failed-to-load-notification-settings",
+          isLoading: false,
+        });
+      }
+    }
+
+    void loadNotificationSettings();
+
+    return () => {
+      isActive = false;
+    };
+  }, [user]);
+
   async function handleUpdatePassword() {
     const authUser = getFirebaseAuth().currentUser;
 
@@ -372,6 +461,54 @@ export function FrontdeskSettingsPage() {
       setReplyTemplatesActionError(error instanceof Error ? error.message : "failed-to-save-reply-templates");
     } finally {
       setIsSavingReplyTemplates(false);
+    }
+  }
+
+  async function handleSaveNotificationEmails() {
+    setNotificationSettingsState((current) => ({
+      ...current,
+      isSaving: true,
+      saveError: null,
+      saveMessage: null,
+    }));
+
+    try {
+      const notificationEmails = notificationSettingsState.notificationEmails
+        .split(/[\n,]/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+      const response = await authorizedFetch("/api/frontdesk/notification-settings", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          notificationEmails,
+        }),
+      });
+      const payload = (await response.json()) as NotificationSettingsResponse;
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "failed-to-save-notification-settings");
+      }
+
+      setNotificationSettingsState((current) => ({
+        ...current,
+        isSaving: false,
+        notificationEmails: (payload.notificationEmails ?? []).join("\n"),
+        saveError: null,
+        saveMessage: "通知先メールアドレスを保存しました",
+        usesFallbackRecipients: payload.usesFallbackRecipients !== false,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed-to-save-notification-settings";
+      setNotificationSettingsState((current) => ({
+        ...current,
+        isSaving: false,
+        saveError: message === "invalid-notification-email" ? "メールアドレスの形式を確認してください" : message,
+        saveMessage: null,
+      }));
     }
   }
 
@@ -549,6 +686,85 @@ export function FrontdeskSettingsPage() {
           </div>
 
           <div className={compactMode ? "space-y-4" : "space-y-5"}>
+            <section className="overflow-hidden rounded-[10px] border border-[#ecd2cf] bg-[#fff8f7] shadow-[0_12px_30px_rgba(72,32,28,0.06)]">
+              <div className="border-b border-[#ecd2cf] bg-white px-5 py-5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ad2218]">Notifications</p>
+                <h3 className="mt-2 text-xl font-semibold text-stone-950">通知先メール</h3>
+                <p className="mt-2 text-sm leading-6 text-stone-500">
+                  ゲストの新着チャット通知を受け取るメールアドレスをホテル単位で管理します
+                </p>
+              </div>
+
+              <div className="space-y-4 p-4 sm:p-5">
+                <div className="rounded-[8px] border border-[#ecd2cf] bg-white px-4 py-3">
+                  <p className="text-sm font-medium text-stone-900">
+                    {notificationSettingsState.usesFallbackRecipients
+                      ? "現在はスタッフアカウントのメールへ通知します"
+                      : "現在はこの一覧へ通知します"}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-stone-500">
+                    空欄で保存すると、`hotel_admin` と `hotel_front` の有効ユーザーのメールアドレスへ自動でフォールバックします
+                  </p>
+                </div>
+
+                {notificationSettingsState.isLoading ? (
+                  <p className="rounded-[8px] border border-[#ecd2cf] bg-white px-4 py-3 text-sm text-stone-500">
+                    読み込み中
+                  </p>
+                ) : null}
+                {notificationSettingsState.error ? (
+                  <p className="rounded-[8px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {notificationSettingsState.error}
+                  </p>
+                ) : null}
+
+                <label className="grid gap-2 text-sm">
+                  <span className="font-medium text-stone-700">通知先メールアドレス</span>
+                  <textarea
+                    rows={6}
+                    className="rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-3 text-sm leading-6 outline-none transition focus:border-[#ad2218] disabled:bg-stone-100"
+                    value={notificationSettingsState.notificationEmails}
+                    onChange={(event) =>
+                      setNotificationSettingsState((current) => ({
+                        ...current,
+                        notificationEmails: event.target.value,
+                        saveError: null,
+                        saveMessage: null,
+                      }))
+                    }
+                    placeholder={"notify@example.com\nnightshift@example.com"}
+                    disabled={role !== "hotel_admin" || notificationSettingsState.isLoading}
+                  />
+                </label>
+
+                {role === "hotel_admin" ? (
+                  <button
+                    type="button"
+                    className="w-full rounded-[8px] bg-[#ad2218] px-4 py-3 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300"
+                    onClick={() => void handleSaveNotificationEmails()}
+                    disabled={notificationSettingsState.isLoading || notificationSettingsState.isSaving}
+                  >
+                    {notificationSettingsState.isSaving ? "保存中" : "通知先を保存"}
+                  </button>
+                ) : (
+                  <p className="rounded-[8px] border border-[#ecd2cf] bg-white px-4 py-3 text-sm text-stone-500">
+                    通知先メールの更新はホテル管理者のみ可能です
+                  </p>
+                )}
+
+                {notificationSettingsState.saveMessage ? (
+                  <p className="rounded-[8px] border border-[#e7c0bb] bg-[#fff1ef] px-4 py-3 text-sm text-[#ad2218]">
+                    {notificationSettingsState.saveMessage}
+                  </p>
+                ) : null}
+                {notificationSettingsState.saveError ? (
+                  <p className="rounded-[8px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {notificationSettingsState.saveError}
+                  </p>
+                ) : null}
+              </div>
+            </section>
+
             <section className="overflow-hidden rounded-[10px] border border-[#ecd2cf] bg-[#fff8f7] shadow-[0_12px_30px_rgba(72,32,28,0.06)]">
               <div className="border-b border-[#ecd2cf] bg-white px-5 py-5">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#ad2218]">Security</p>

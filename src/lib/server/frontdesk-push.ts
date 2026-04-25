@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { formatRoomLabel } from "@/lib/frontdesk/format";
 import { getFirebaseAdminDb, getFirebaseAdminMessaging } from "@/lib/server/firebase-admin";
+import { getHotelNotificationSettings } from "@/lib/server/hotel-notification-settings";
 
 type PushSubscriptionRecord = {
   token: string;
@@ -107,6 +108,11 @@ async function listActiveSubscriptionDocs(hotelId: string) {
 }
 
 async function listHotelNotificationEmails(hotelId: string) {
+  const configuredSettings = await getHotelNotificationSettings(hotelId);
+  if (configuredSettings.notificationEmails.length > 0) {
+    return configuredSettings.notificationEmails;
+  }
+
   const snapshot = await getFirebaseAdminDb()
     .collection("users")
     .where("hotel_id", "==", hotelId)
