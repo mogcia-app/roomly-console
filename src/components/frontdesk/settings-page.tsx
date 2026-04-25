@@ -797,7 +797,7 @@ export function FrontdeskSettingsPage() {
                   <span className="font-medium text-stone-700">通知先メールアドレス</span>
                   <div className="space-y-3">
                     {notificationSettingsState.notificationEmails.map((email, index) => (
-                      <div key={`notification-email-${index}`} className="flex items-center gap-3">
+                      <div key={`notification-email-${index}`} className="flex flex-col gap-3 sm:flex-row sm:items-center">
                         <div className="min-w-0 flex-1">
                           <input
                             className="w-full rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-3 text-sm outline-none transition focus:border-[#ad2218] disabled:bg-stone-100"
@@ -814,7 +814,7 @@ export function FrontdeskSettingsPage() {
                         {index > 0 ? (
                           <button
                             type="button"
-                            className="shrink-0 rounded-[8px] border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400"
+                            className="rounded-[8px] border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400 sm:shrink-0"
                             onClick={() =>
                               setNotificationEmails((current) => {
                                 const next = current.filter((_, entryIndex) => entryIndex !== index);
@@ -831,7 +831,7 @@ export function FrontdeskSettingsPage() {
                     {role === "hotel_admin" ? (
                       <button
                         type="button"
-                        className="inline-flex rounded-[8px] border border-[#ad2218] bg-white px-4 py-2 text-sm font-semibold text-[#ad2218] transition hover:bg-[#fff1ef] disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400"
+                        className="inline-flex w-full justify-center rounded-[8px] border border-[#ad2218] bg-white px-4 py-2 text-sm font-semibold text-[#ad2218] transition hover:bg-[#fff1ef] disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400 sm:w-auto"
                         onClick={() => setNotificationEmails((current) => [...current, ""])}
                         disabled={notificationSettingsState.isLoading}
                       >

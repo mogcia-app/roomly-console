@@ -307,8 +307,8 @@ function ThreadListCard({
           {roomInitial}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <h3 className="truncate text-[15px] font-semibold text-stone-950">{headline}</h3>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <h3 className="break-words text-[15px] font-semibold text-stone-950 sm:min-w-0 sm:flex-1 sm:truncate">{headline}</h3>
             {emergencyLabel ? (
               <span className="shrink-0 rounded-full bg-[#ad2218] px-2.5 py-1 text-[11px] font-semibold text-white">
                 緊急: {emergencyLabel}
@@ -318,7 +318,7 @@ function ThreadListCard({
           <p className="mt-1 line-clamp-1 text-sm text-stone-500">
             {thread.last_message_body ?? thread.category ?? formatThreadInquiryType(thread)}
           </p>
-          <div className="mt-3 flex items-center justify-between gap-2 text-xs text-stone-400">
+          <div className="mt-3 flex flex-col gap-2 text-xs text-stone-400 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               {emergencyLabel ? <span className="font-semibold text-[#ad2218]">最優先対応</span> : null}
               {selectedByOther ? <span>他スタッフ対応中</span> : null}
@@ -326,7 +326,7 @@ function ThreadListCard({
             </div>
             {unreadCountFront > 0 ? (
               <span
-                className="inline-flex min-w-7 items-center justify-center rounded-full bg-[#ad2218] px-2 py-1 text-[11px] font-semibold text-white"
+                className="inline-flex min-w-7 self-start items-center justify-center rounded-full bg-[#ad2218] px-2 py-1 text-[11px] font-semibold text-white sm:self-auto"
                 aria-label={`未読 ${unreadCountFront} 件`}
               >
                 {unreadCountFront > 99 ? "99+" : unreadCountFront}

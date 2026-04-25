@@ -450,16 +450,16 @@ export function FrontdeskStayManagementPage() {
 
                 return (
                   <article key={room.id} className="rounded-[10px] border border-[#ecd2cf] bg-white p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-xs uppercase tracking-[0.16em] text-stone-400">Room {room.room_number}</p>
                       </div>
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <h3 className="text-lg font-semibold text-stone-950">
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <h3 className="break-words text-lg font-semibold text-stone-950">
                           {draftValue.trim() || formatRoomLabel(room.room_id, room.room_number, room.display_name)}
                         </h3>
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${occupancyTone(item.status)}`}>
+                        <span className={`inline-flex self-start rounded-full px-3 py-1 text-xs font-semibold ${occupancyTone(item.status)}`}>
                           {occupancyLabel(item.status)}
                         </span>
                       </div>
@@ -494,7 +494,7 @@ export function FrontdeskStayManagementPage() {
                     </div>
                   </dl>
 
-                  <div className="mt-4 grid grid-cols-[minmax(0,1fr)_64px] items-end gap-2">
+                  <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_64px] sm:items-end">
                     <label className="grid gap-1.5 text-sm">
                       <span className="text-stone-500">表示名</span>
                       <input
@@ -727,17 +727,17 @@ export function FrontdeskStayManagementPage() {
                     </label>
                   </div>
 
-                  <footer className="flex items-center justify-end gap-2 border-t border-[#ecd2cf] px-5 py-4 sm:px-6">
+                  <footer className="flex flex-col-reverse gap-2 border-t border-[#ecd2cf] px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-6">
                     <button
                       type="button"
-                      className="rounded-[8px] border border-[#ecd2cf] px-4 py-2 text-sm text-stone-600 transition hover:bg-[#fff8f7]"
+                      className="w-full rounded-[8px] border border-[#ecd2cf] px-4 py-2 text-sm text-stone-600 transition hover:bg-[#fff8f7] sm:w-auto"
                       onClick={() => setExpandedRoomId(null)}
                     >
                       閉じる
                     </button>
                     <button
                       type="button"
-                      className="rounded-[8px] bg-[#ad2218] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300"
+                      className="w-full rounded-[8px] bg-[#ad2218] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300 sm:w-auto"
                       disabled={!isAdmin || isPending || !expandedRoomValidation.canSubmit}
                       onClick={() => void handleCheckIn(expandedRoom)}
                     >
