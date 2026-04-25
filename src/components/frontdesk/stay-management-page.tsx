@@ -81,6 +81,15 @@ function infoValue(value: string | number | null | undefined) {
   return String(value);
 }
 
+function formatFloorLabel(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return /[Ff階]$/.test(trimmed) ? trimmed : `${trimmed}階`;
+}
+
 function resolveCheckInValidation(draft: CheckInDraft) {
   const guestCount = Number.parseInt(draft.guestCount, 10);
   const hasValidGuestCount = Number.isFinite(guestCount) && guestCount > 0;
@@ -456,7 +465,7 @@ export function FrontdeskStayManagementPage() {
                       </div>
                     </div>
 
-                    {room.floor ? <span className="text-xs text-stone-400">{room.floor}階</span> : null}
+                    {room.floor ? <span className="text-xs text-stone-400">{formatFloorLabel(room.floor)}</span> : null}
                   </div>
 
                   <dl className="mt-4 grid gap-3 text-sm">

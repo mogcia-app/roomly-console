@@ -325,7 +325,12 @@ function ThreadListCard({
               {stayState === "checked_out" ? <span>チェックアウト済み</span> : null}
             </div>
             {unreadCountFront > 0 ? (
-              <span className="block h-2.5 w-2.5 rounded-full bg-[#ad2218]" aria-label="未読あり" />
+              <span
+                className="inline-flex min-w-7 items-center justify-center rounded-full bg-[#ad2218] px-2 py-1 text-[11px] font-semibold text-white"
+                aria-label={`未読 ${unreadCountFront} 件`}
+              >
+                {unreadCountFront > 99 ? "99+" : unreadCountFront}
+              </span>
             ) : null}
           </div>
         </div>
