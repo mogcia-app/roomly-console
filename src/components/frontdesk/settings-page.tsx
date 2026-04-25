@@ -44,7 +44,7 @@ type NotificationSettingsState = {
   error: string | null;
   isLoading: boolean;
   isSendingTest: boolean;
-  notificationEmails: string;
+  notificationEmails: string[];
   isSaving: boolean;
   saveError: string | null;
   saveMessage: string | null;
@@ -64,7 +64,7 @@ const initialNotificationSettingsState: NotificationSettingsState = {
   error: null,
   isLoading: false,
   isSendingTest: false,
-  notificationEmails: "",
+  notificationEmails: [""],
   isSaving: false,
   saveError: null,
   saveMessage: null,
@@ -272,6 +272,19 @@ export function FrontdeskSettingsPage() {
 
   const role = claims?.role;
 
+  function setNotificationEmails(
+    updater: (current: string[]) => string[],
+  ) {
+    setNotificationSettingsState((current) => ({
+      ...current,
+      notificationEmails: updater(current.notificationEmails),
+      saveError: null,
+      saveMessage: null,
+      testError: null,
+      testMessage: null,
+    }));
+  }
+
   function updateReplyTemplate(templateId: string, patch: Partial<FrontdeskReplyTemplate>) {
     replyTemplatesState.setTemplates((current) =>
       current.map((template) => (template.id === templateId ? { ...template, ...patch } : template)),
@@ -388,7 +401,7 @@ export function FrontdeskSettingsPage() {
           isLoading: false,
           isSendingTest: false,
           isSaving: false,
-          notificationEmails: (payload.notificationEmails ?? []).join("\n"),
+          notificationEmails: payload.notificationEmails && payload.notificationEmails.length > 0 ? payload.notificationEmails : [""],
           saveError: null,
           saveMessage: null,
           testError: null,
@@ -496,7 +509,6 @@ export function FrontdeskSettingsPage() {
 
     try {
       const notificationEmails = notificationSettingsState.notificationEmails
-        .split(/[\n,]/)
         .map((value) => value.trim())
         .filter(Boolean);
 
@@ -518,7 +530,7 @@ export function FrontdeskSettingsPage() {
       setNotificationSettingsState((current) => ({
         ...current,
         isSaving: false,
-        notificationEmails: (payload.notificationEmails ?? []).join("\n"),
+        notificationEmails: payload.notificationEmails && payload.notificationEmails.length > 0 ? payload.notificationEmails : [""],
         saveError: null,
         saveMessage: "通知先メールアドレスを保存しました",
         testError: null,
@@ -768,9 +780,6 @@ export function FrontdeskSettingsPage() {
                       ? "現在はスタッフアカウントのメールへ通知します"
                       : "現在はこの一覧へ通知します"}
                   </p>
-                  <p className="mt-1 text-xs leading-5 text-stone-500">
-                    空欄で保存すると、`hotel_admin` と `hotel_front` の有効ユーザーのメールアドレスへ自動でフォールバックします
-                  </p>
                 </div>
 
                 {notificationSettingsState.isLoading ? (
@@ -786,23 +795,50 @@ export function FrontdeskSettingsPage() {
 
                 <label className="grid gap-2 text-sm">
                   <span className="font-medium text-stone-700">通知先メールアドレス</span>
-                  <textarea
-                    rows={6}
-                    className="rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-3 text-sm leading-6 outline-none transition focus:border-[#ad2218] disabled:bg-stone-100"
-                    value={notificationSettingsState.notificationEmails}
-                    onChange={(event) =>
-                      setNotificationSettingsState((current) => ({
-                        ...current,
-                        notificationEmails: event.target.value,
-                        saveError: null,
-                        saveMessage: null,
-                        testError: null,
-                        testMessage: null,
-                      }))
-                    }
-                    placeholder={"notify@example.com\nnightshift@example.com"}
-                    disabled={role !== "hotel_admin" || notificationSettingsState.isLoading}
-                  />
+                  <div className="space-y-3">
+                    {notificationSettingsState.notificationEmails.map((email, index) => (
+                      <div key={`notification-email-${index}`} className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <input
+                            className="w-full rounded-[8px] border border-[#ecd2cf] bg-[#fff8f7] px-3 py-3 text-sm outline-none transition focus:border-[#ad2218] disabled:bg-stone-100"
+                            value={email}
+                            onChange={(event) =>
+                              setNotificationEmails((current) =>
+                                current.map((entry, entryIndex) => (entryIndex === index ? event.target.value : entry)),
+                              )
+                            }
+                            placeholder={index === 0 ? "roomlysupport@mogcia.jp" : "追加の通知先メールアドレス"}
+                            disabled={role !== "hotel_admin" || notificationSettingsState.isLoading}
+                          />
+                        </div>
+                        {index > 0 ? (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-[8px] border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400"
+                            onClick={() =>
+                              setNotificationEmails((current) => {
+                                const next = current.filter((_, entryIndex) => entryIndex !== index);
+                                return next.length > 0 ? next : [""];
+                              })
+                            }
+                            disabled={role !== "hotel_admin" || notificationSettingsState.isLoading}
+                          >
+                            削除
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                    {role === "hotel_admin" ? (
+                      <button
+                        type="button"
+                        className="inline-flex rounded-[8px] border border-[#ad2218] bg-white px-4 py-2 text-sm font-semibold text-[#ad2218] transition hover:bg-[#fff1ef] disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400"
+                        onClick={() => setNotificationEmails((current) => [...current, ""])}
+                        disabled={notificationSettingsState.isLoading}
+                      >
+                        追加
+                      </button>
+                    ) : null}
+                  </div>
                 </label>
 
                 {role === "hotel_admin" ? (

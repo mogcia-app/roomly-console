@@ -133,7 +133,7 @@ async function resolveHotelLabel(hotelId: string) {
         "facilityName",
         "name",
       ]),
-    ) ?? hotelId
+    ) ?? "ご利用ホテル"
   );
 }
 
@@ -178,27 +178,40 @@ function buildFrontdeskEmailContent(params: FrontdeskEmailContext & { kind: "not
   const safeHotelLabel = escapeHtml(params.hotelLabel);
   const safeGuestName = escapeHtml(params.guestName ?? "");
   const safeRoomLabel = escapeHtml(params.roomLabel);
-  const safeTitle = escapeHtml(params.title);
   const safeThreadUrl = escapeHtml(threadUrl);
+  const introText =
+    params.kind === "test"
+      ? `${params.hotelLabel} の通知メール設定を確認するためのテストメールです。`
+      : params.isEmergency
+        ? "緊急対応が必要なメッセージを受信しました。内容を確認のうえ、至急ご対応ください。"
+        : `${params.hotelLabel} のチャットに新しいメッセージが届きました。`;
+  const safeIntroText = escapeHtml(introText);
+  const safeEmergencyLabel = escapeHtml(emergencyLabel);
   const text = [
-    params.title,
+    introText,
     "",
     `ホテル: ${params.hotelLabel}`,
     `部屋: ${params.roomLabel}`,
     params.guestName ? `ゲスト: ${params.guestName}様` : "",
+    params.isEmergency && emergencyLabel ? `緊急カテゴリ: ${emergencyLabel}` : "",
     `内容: ${params.body}`,
-    threadUrl ? `管理画面: ${threadUrl}` : "",
+    threadUrl ? `管理画面で確認する: ${threadUrl}` : "",
+    "",
+    "Roomly Support",
   ]
     .filter(Boolean)
     .join("\n");
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #1c1917;">
-      <h2 style="margin: 0 0 16px; font-size: 20px;">${safeTitle}</h2>
+      <h2 style="margin: 0 0 16px; font-size: 20px;">${escapeHtml(subject)}</h2>
+      <p style="margin: 0 0 16px;">${safeIntroText}</p>
       <p style="margin: 0 0 8px;"><strong>ホテル:</strong> ${safeHotelLabel}</p>
       <p style="margin: 0 0 8px;"><strong>部屋:</strong> ${safeRoomLabel}</p>
       ${params.guestName ? `<p style="margin: 0 0 8px;"><strong>ゲスト:</strong> ${safeGuestName} 様</p>` : ""}
+      ${params.isEmergency && emergencyLabel ? `<p style="margin: 0 0 8px;"><strong>緊急カテゴリ:</strong> ${safeEmergencyLabel}</p>` : ""}
       <p style="margin: 0 0 16px;"><strong>内容:</strong><br>${safeBody}</p>
-      ${threadUrl ? `<p style="margin: 0;"><a href="${safeThreadUrl}">管理画面で確認する</a></p>` : ""}
+      ${threadUrl ? `<p style="margin: 0 0 16px;"><a href="${safeThreadUrl}" style="color: #ad2218; font-weight: 600;">管理画面で確認する</a></p>` : ""}
+      <p style="margin: 0; color: #78716c; font-size: 13px;">Roomly Support</p>
     </div>
   `.trim();
 
@@ -493,7 +506,7 @@ export async function sendFrontdeskNotificationTestEmail(params: {
 }) {
   const hotelLabel = await resolveHotelLabel(params.hotelId);
   return sendFrontdeskEmailToHotel({
-    body: "このメールは Roomly の通知先メール設定が有効か確認するためのテスト送信です。",
+    body: "このメールは Roomly の通知メール設定が正しく機能しているかを確認するためのテスト送信です。",
     guestName: null,
     hotelId: params.hotelId,
     hotelLabel,
