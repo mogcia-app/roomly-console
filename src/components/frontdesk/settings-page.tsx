@@ -24,6 +24,15 @@ type NotificationSettingsResponse = {
   usesFallbackRecipients?: boolean;
 };
 
+type NotificationTestResponse = {
+  error?: string;
+  result?: {
+    recipientCount?: number;
+    sent?: boolean;
+    skipped?: boolean;
+  };
+};
+
 type OperationsInfoState = {
   data: OperationsInfoRecord;
   error: string | null;
@@ -34,10 +43,13 @@ type OperationsInfoState = {
 type NotificationSettingsState = {
   error: string | null;
   isLoading: boolean;
+  isSendingTest: boolean;
   notificationEmails: string;
   isSaving: boolean;
   saveError: string | null;
   saveMessage: string | null;
+  testError: string | null;
+  testMessage: string | null;
   usesFallbackRecipients: boolean;
 };
 
@@ -51,10 +63,13 @@ const initialOperationsInfoState: OperationsInfoState = {
 const initialNotificationSettingsState: NotificationSettingsState = {
   error: null,
   isLoading: false,
+  isSendingTest: false,
   notificationEmails: "",
   isSaving: false,
   saveError: null,
   saveMessage: null,
+  testError: null,
+  testMessage: null,
   usesFallbackRecipients: true,
 };
 
@@ -352,6 +367,8 @@ export function FrontdeskSettingsPage() {
         isLoading: true,
         saveError: null,
         saveMessage: null,
+        testError: null,
+        testMessage: null,
       }));
 
       try {
@@ -369,10 +386,13 @@ export function FrontdeskSettingsPage() {
         setNotificationSettingsState({
           error: null,
           isLoading: false,
+          isSendingTest: false,
           isSaving: false,
           notificationEmails: (payload.notificationEmails ?? []).join("\n"),
           saveError: null,
           saveMessage: null,
+          testError: null,
+          testMessage: null,
           usesFallbackRecipients: payload.usesFallbackRecipients !== false,
         });
       } catch (error) {
@@ -470,6 +490,8 @@ export function FrontdeskSettingsPage() {
       isSaving: true,
       saveError: null,
       saveMessage: null,
+      testError: null,
+      testMessage: null,
     }));
 
     try {
@@ -499,6 +521,8 @@ export function FrontdeskSettingsPage() {
         notificationEmails: (payload.notificationEmails ?? []).join("\n"),
         saveError: null,
         saveMessage: "通知先メールアドレスを保存しました",
+        testError: null,
+        testMessage: null,
         usesFallbackRecipients: payload.usesFallbackRecipients !== false,
       }));
     } catch (error) {
@@ -508,6 +532,48 @@ export function FrontdeskSettingsPage() {
         isSaving: false,
         saveError: message === "invalid-notification-email" ? "メールアドレスの形式を確認してください" : message,
         saveMessage: null,
+      }));
+    }
+  }
+
+  async function handleSendNotificationTest() {
+    setNotificationSettingsState((current) => ({
+      ...current,
+      isSendingTest: true,
+      testError: null,
+      testMessage: null,
+    }));
+
+    try {
+      const response = await authorizedFetch("/api/frontdesk/notification-settings/test", {
+        method: "POST",
+      });
+      const payload = (await response.json()) as NotificationTestResponse;
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "failed-to-send-notification-test");
+      }
+
+      const recipientCount = payload.result?.recipientCount ?? 0;
+      const skipped = payload.result?.skipped ?? false;
+      const sent = payload.result?.sent ?? false;
+
+      setNotificationSettingsState((current) => ({
+        ...current,
+        isSendingTest: false,
+        testError: null,
+        testMessage: skipped
+          ? "テストメールは送信設定不足のためスキップされました"
+          : sent
+            ? `テストメールを送信しました (${recipientCount} 件)`
+            : `テストメールを送信できませんでした (${recipientCount} 件)`,
+      }));
+    } catch (error) {
+      setNotificationSettingsState((current) => ({
+        ...current,
+        isSendingTest: false,
+        testError: error instanceof Error ? error.message : "failed-to-send-notification-test",
+        testMessage: null,
       }));
     }
   }
@@ -730,6 +796,8 @@ export function FrontdeskSettingsPage() {
                         notificationEmails: event.target.value,
                         saveError: null,
                         saveMessage: null,
+                        testError: null,
+                        testMessage: null,
                       }))
                     }
                     placeholder={"notify@example.com\nnightshift@example.com"}
@@ -738,14 +806,28 @@ export function FrontdeskSettingsPage() {
                 </label>
 
                 {role === "hotel_admin" ? (
-                  <button
-                    type="button"
-                    className="w-full rounded-[8px] bg-[#ad2218] px-4 py-3 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300"
-                    onClick={() => void handleSaveNotificationEmails()}
-                    disabled={notificationSettingsState.isLoading || notificationSettingsState.isSaving}
-                  >
-                    {notificationSettingsState.isSaving ? "保存中" : "通知先を保存"}
-                  </button>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      className="w-full rounded-[8px] bg-[#ad2218] px-4 py-3 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-stone-300"
+                      onClick={() => void handleSaveNotificationEmails()}
+                      disabled={notificationSettingsState.isLoading || notificationSettingsState.isSaving}
+                    >
+                      {notificationSettingsState.isSaving ? "保存中" : "通知先を保存"}
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-[8px] border border-[#ad2218] bg-white px-4 py-3 text-sm font-semibold text-[#ad2218] transition hover:bg-[#fff1ef] disabled:cursor-not-allowed disabled:border-stone-300 disabled:text-stone-400"
+                      onClick={() => void handleSendNotificationTest()}
+                      disabled={
+                        notificationSettingsState.isLoading ||
+                        notificationSettingsState.isSaving ||
+                        notificationSettingsState.isSendingTest
+                      }
+                    >
+                      {notificationSettingsState.isSendingTest ? "送信中" : "テスト送信"}
+                    </button>
+                  </div>
                 ) : (
                   <p className="rounded-[8px] border border-[#ecd2cf] bg-white px-4 py-3 text-sm text-stone-500">
                     通知先メールの更新はホテル管理者のみ可能です
@@ -760,6 +842,16 @@ export function FrontdeskSettingsPage() {
                 {notificationSettingsState.saveError ? (
                   <p className="rounded-[8px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                     {notificationSettingsState.saveError}
+                  </p>
+                ) : null}
+                {notificationSettingsState.testMessage ? (
+                  <p className="rounded-[8px] border border-[#e7c0bb] bg-[#fff1ef] px-4 py-3 text-sm text-[#ad2218]">
+                    {notificationSettingsState.testMessage}
+                  </p>
+                ) : null}
+                {notificationSettingsState.testError ? (
+                  <p className="rounded-[8px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {notificationSettingsState.testError}
                   </p>
                 ) : null}
               </div>

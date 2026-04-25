@@ -22,6 +22,17 @@ type PushDispatchThreadState = {
   unreadCountFront?: number | null;
 };
 
+type FrontdeskEmailContext = {
+  body: string;
+  guestName?: string | null;
+  hotelId: string;
+  hotelLabel: string;
+  isEmergency?: boolean;
+  roomLabel: string;
+  threadId?: string;
+  title: string;
+};
+
 function buildSubscriptionDocId(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -40,6 +51,32 @@ function readNullableString(value: unknown) {
 
 function readNullableNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function getNestedValue(record: Record<string, unknown>, path: string) {
+  const segments = path.split(".");
+  let current: unknown = record;
+
+  for (const segment of segments) {
+    if (typeof current !== "object" || current === null || Array.isArray(current)) {
+      return undefined;
+    }
+
+    current = (current as Record<string, unknown>)[segment];
+  }
+
+  return current;
+}
+
+function pickFirstValue(record: Record<string, unknown>, paths: string[]) {
+  for (const path of paths) {
+    const value = getNestedValue(record, path);
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 function truncateNotificationBody(value: string) {
@@ -77,6 +114,99 @@ function resolveEmergencyLabel(category: string) {
     default:
       return "緊急";
   }
+}
+
+async function resolveHotelLabel(hotelId: string) {
+  const snapshot = await getFirebaseAdminDb().collection("hearing_sheets").doc(hotelId).get();
+  const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+
+  return (
+    readNullableString(
+      pickFirstValue(data, [
+        "hotel_name",
+        "hotelName",
+        "property_name",
+        "propertyName",
+        "basic_info.name",
+        "basicInfo.name",
+        "facility_name",
+        "facilityName",
+        "name",
+      ]),
+    ) ?? hotelId
+  );
+}
+
+async function resolveGuestName(stayId: string) {
+  if (!stayId) {
+    return null;
+  }
+
+  const snapshot = await getFirebaseAdminDb().collection("stays").doc(stayId).get();
+  const data = (snapshot.data() ?? {}) as Record<string, unknown>;
+  return readNullableString(data.guest_name) ?? readNullableString(data.guestName);
+}
+
+function buildFrontdeskEmailSubject(params: {
+  emergencyLabel?: string;
+  hotelLabel: string;
+  roomLabel: string;
+  kind: "notification" | "test";
+}) {
+  if (params.kind === "test") {
+    return `[Roomly][テスト] ${params.hotelLabel} 通知メール確認`;
+  }
+
+  if (params.emergencyLabel) {
+    return `[Roomly][緊急] ${params.hotelLabel} ${params.roomLabel} ${params.emergencyLabel}`;
+  }
+
+  return `[Roomly] ${params.hotelLabel} ${params.roomLabel} から新着メッセージ`;
+}
+
+function buildFrontdeskEmailContent(params: FrontdeskEmailContext & { kind: "notification" | "test" }) {
+  const baseUrl = (process.env.FRONTDESK_API_BASE_URL?.trim() ?? "").replace(/\/$/, "");
+  const threadUrl = params.threadId && baseUrl ? `${baseUrl}/?threadId=${encodeURIComponent(params.threadId)}` : "";
+  const emergencyLabel = params.isEmergency ? params.title.replace(/^緊急:\s*/, "") : "";
+  const subject = buildFrontdeskEmailSubject({
+    emergencyLabel,
+    hotelLabel: params.hotelLabel,
+    kind: params.kind,
+    roomLabel: params.roomLabel,
+  });
+  const safeBody = escapeHtml(params.body);
+  const safeHotelLabel = escapeHtml(params.hotelLabel);
+  const safeGuestName = escapeHtml(params.guestName ?? "");
+  const safeRoomLabel = escapeHtml(params.roomLabel);
+  const safeTitle = escapeHtml(params.title);
+  const safeThreadUrl = escapeHtml(threadUrl);
+  const text = [
+    params.title,
+    "",
+    `ホテル: ${params.hotelLabel}`,
+    `部屋: ${params.roomLabel}`,
+    params.guestName ? `ゲスト: ${params.guestName}様` : "",
+    `内容: ${params.body}`,
+    threadUrl ? `管理画面: ${threadUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #1c1917;">
+      <h2 style="margin: 0 0 16px; font-size: 20px;">${safeTitle}</h2>
+      <p style="margin: 0 0 8px;"><strong>ホテル:</strong> ${safeHotelLabel}</p>
+      <p style="margin: 0 0 8px;"><strong>部屋:</strong> ${safeRoomLabel}</p>
+      ${params.guestName ? `<p style="margin: 0 0 8px;"><strong>ゲスト:</strong> ${safeGuestName} 様</p>` : ""}
+      <p style="margin: 0 0 16px;"><strong>内容:</strong><br>${safeBody}</p>
+      ${threadUrl ? `<p style="margin: 0;"><a href="${safeThreadUrl}">管理画面で確認する</a></p>` : ""}
+    </div>
+  `.trim();
+
+  return {
+    html,
+    subject,
+    text,
+  };
 }
 
 export function buildFrontdeskGuestPushDispatchKey(params: {
@@ -284,15 +414,18 @@ async function sendFrontdeskPushToHotel(params: {
 
 async function sendFrontdeskEmailToHotel(params: {
   body: string;
+  guestName?: string | null;
   hotelId: string;
-  threadId: string;
+  hotelLabel: string;
+  isEmergency?: boolean;
+  kind?: "notification" | "test";
+  threadId?: string;
   title: string;
   roomLabel: string;
 }) {
   const resendApiKey = process.env.RESEND_API_KEY?.trim() ?? "";
   const from = process.env.FRONTDESK_EMAIL_FROM?.trim() ?? "";
   const replyTo = process.env.FRONTDESK_EMAIL_REPLY_TO?.trim() ?? "";
-  const baseUrl = (process.env.FRONTDESK_API_BASE_URL?.trim() ?? "").replace(/\/$/, "");
 
   if (!resendApiKey || !from) {
     return { recipientCount: 0, sent: false, skipped: true };
@@ -303,31 +436,17 @@ async function sendFrontdeskEmailToHotel(params: {
     return { recipientCount: 0, sent: false, skipped: false };
   }
 
-  const threadUrl = baseUrl ? `${baseUrl}/?threadId=${encodeURIComponent(params.threadId)}` : "";
-  const subject = params.title.startsWith("緊急:")
-    ? `[Roomly] ${params.title}`
-    : `[Roomly] ${params.roomLabel} から新着メッセージ`;
-  const safeBody = escapeHtml(params.body);
-  const safeRoomLabel = escapeHtml(params.roomLabel);
-  const safeTitle = escapeHtml(params.title);
-  const safeThreadUrl = escapeHtml(threadUrl);
-  const text = [
-    params.title,
-    "",
-    `部屋: ${params.roomLabel}`,
-    `内容: ${params.body}`,
-    threadUrl ? `管理画面: ${threadUrl}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  const html = `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #1c1917;">
-      <h2 style="margin: 0 0 16px; font-size: 20px;">${safeTitle}</h2>
-      <p style="margin: 0 0 8px;"><strong>部屋:</strong> ${safeRoomLabel}</p>
-      <p style="margin: 0 0 16px;"><strong>内容:</strong><br>${safeBody}</p>
-      ${threadUrl ? `<p style="margin: 0;"><a href="${safeThreadUrl}">管理画面で確認する</a></p>` : ""}
-    </div>
-  `.trim();
+  const { html, subject, text } = buildFrontdeskEmailContent({
+    body: params.body,
+    guestName: params.guestName,
+    hotelId: params.hotelId,
+    hotelLabel: params.hotelLabel,
+    isEmergency: params.isEmergency,
+    kind: params.kind ?? "notification",
+    roomLabel: params.roomLabel,
+    threadId: params.threadId,
+    title: params.title,
+  });
 
   try {
     const response = await fetch("https://api.resend.com/emails", {
@@ -352,7 +471,7 @@ async function sendFrontdeskEmailToHotel(params: {
         error: errorText || "unknown-error",
         hotelId: params.hotelId,
         recipientCount: recipients.length,
-        threadId: params.threadId,
+        threadId: params.threadId ?? "",
       });
       return { recipientCount: recipients.length, sent: false, skipped: false };
     }
@@ -363,10 +482,26 @@ async function sendFrontdeskEmailToHotel(params: {
       error: error instanceof Error ? error.message : "unknown-error",
       hotelId: params.hotelId,
       recipientCount: recipients.length,
-      threadId: params.threadId,
+      threadId: params.threadId ?? "",
     });
     return { recipientCount: recipients.length, sent: false, skipped: false };
   }
+}
+
+export async function sendFrontdeskNotificationTestEmail(params: {
+  hotelId: string;
+}) {
+  const hotelLabel = await resolveHotelLabel(params.hotelId);
+  return sendFrontdeskEmailToHotel({
+    body: "このメールは Roomly の通知先メール設定が有効か確認するためのテスト送信です。",
+    guestName: null,
+    hotelId: params.hotelId,
+    hotelLabel,
+    isEmergency: false,
+    kind: "test",
+    roomLabel: "通知設定",
+    title: "通知テスト",
+  });
 }
 
 export async function dispatchFrontdeskGuestMessagePush(params: {
@@ -444,6 +579,7 @@ export async function dispatchFrontdeskGuestMessagePush(params: {
     const roomDisplayName =
       readString(params.threadState?.roomDisplayName) || readString(threadData.room_display_name) || readString(threadData.roomDisplayName) || undefined;
     const lastMessageBody = readString(params.threadState?.lastMessageBody) || readString(threadData.last_message_body);
+    const stayId = readString(threadData.stay_id) || readString(threadData.stayId);
 
     const roomLabel = formatRoomLabel(
       roomId,
@@ -455,7 +591,10 @@ export async function dispatchFrontdeskGuestMessagePush(params: {
       body: truncateNotificationBody(
         lastMessageBody || category || "新しいメッセージがあります",
       ),
+      emergencyLabel,
+      hotelId: params.hotelId,
       roomLabel,
+      stayId,
       title: emergencyLabel
         ? `緊急: ${emergencyLabel}`
         : `${roomLabel} から新着チャット`,
@@ -466,6 +605,11 @@ export async function dispatchFrontdeskGuestMessagePush(params: {
     return { dispatched: false, emailSent: false, emailRecipientCount: 0, sentCount: 0, tokenCount: 0 };
   }
 
+  const [hotelLabel, guestName] = await Promise.all([
+    resolveHotelLabel(sendContext.hotelId),
+    resolveGuestName(sendContext.stayId),
+  ]);
+
   const pushResult = await sendFrontdeskPushToHotel({
     body: sendContext.body,
     hotelId: params.hotelId,
@@ -474,7 +618,10 @@ export async function dispatchFrontdeskGuestMessagePush(params: {
   });
   const emailResult = await sendFrontdeskEmailToHotel({
     body: sendContext.body,
+    guestName,
     hotelId: params.hotelId,
+    hotelLabel,
+    isEmergency: Boolean(sendContext.emergencyLabel),
     roomLabel: sendContext.roomLabel,
     threadId: params.threadId,
     title: sendContext.title,

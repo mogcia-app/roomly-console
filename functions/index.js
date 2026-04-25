@@ -63,6 +63,32 @@ function buildDispatchKey(threadId, threadData) {
   return timestamp ? `${threadId}:timestamp:${timestamp}` : "";
 }
 
+function getNestedValue(record, path) {
+  const segments = path.split(".");
+  let current = record;
+
+  for (const segment of segments) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+
+    current = current[segment];
+  }
+
+  return current;
+}
+
+function pickFirstValue(record, paths) {
+  for (const path of paths) {
+    const value = getNestedValue(record, path);
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
 function truncateNotificationBody(value) {
   const trimmed = readString(value).trim();
   if (!trimmed) {
@@ -135,6 +161,45 @@ function normalizeNotificationEmails(value) {
   }
 
   return Array.from(new Set(value.map((entry) => normalizeSingleEmail(entry)).filter(Boolean)));
+}
+
+async function resolveHotelLabel(hotelId) {
+  const snapshot = await db.collection("hearing_sheets").doc(hotelId).get();
+  const data = snapshot.data() || {};
+
+  return (
+    readString(
+      pickFirstValue(data, [
+        "hotel_name",
+        "hotelName",
+        "property_name",
+        "propertyName",
+        "basic_info.name",
+        "basicInfo.name",
+        "facility_name",
+        "facilityName",
+        "name",
+      ]),
+    ).trim() || hotelId
+  );
+}
+
+async function resolveGuestName(stayId) {
+  if (!stayId) {
+    return "";
+  }
+
+  const snapshot = await db.collection("stays").doc(stayId).get();
+  const data = snapshot.data() || {};
+  return readString(data.guest_name || data.guestName).trim();
+}
+
+function buildEmailSubject({ emergencyLabel, hotelLabel, roomLabel }) {
+  if (emergencyLabel) {
+    return `[Roomly][緊急] ${hotelLabel} ${roomLabel} ${emergencyLabel}`;
+  }
+
+  return `[Roomly] ${hotelLabel} ${roomLabel} から新着メッセージ`;
 }
 
 async function getNotificationEmails(hotelId) {
@@ -237,7 +302,7 @@ async function sendPushToHotel({ body, hotelId, threadId, title }) {
   };
 }
 
-async function sendEmailToHotel({ body, hotelId, roomLabel, threadId, title }) {
+async function sendEmailToHotel({ body, guestName, hotelId, hotelLabel, roomLabel, threadId, title }) {
   const resendApiKey = readString(process.env.RESEND_API_KEY).trim();
   const from = readString(process.env.FRONTDESK_EMAIL_FROM).trim();
   const replyTo = readString(process.env.FRONTDESK_EMAIL_REPLY_TO).trim();
@@ -253,8 +318,11 @@ async function sendEmailToHotel({ body, hotelId, roomLabel, threadId, title }) {
   }
 
   const threadUrl = baseUrl ? `${baseUrl}/?threadId=${encodeURIComponent(threadId)}` : "";
-  const subject = title.startsWith("緊急:") ? `[Roomly] ${title}` : `[Roomly] ${roomLabel} から新着メッセージ`;
+  const emergencyLabel = title.startsWith("緊急:") ? title.replace(/^緊急:\s*/, "") : "";
+  const subject = buildEmailSubject({ emergencyLabel, hotelLabel, roomLabel });
   const safeBody = escapeHtml(body);
+  const safeHotelLabel = escapeHtml(hotelLabel);
+  const safeGuestName = escapeHtml(guestName || "");
   const safeRoomLabel = escapeHtml(roomLabel);
   const safeTitle = escapeHtml(title);
   const safeThreadUrl = escapeHtml(threadUrl);
@@ -262,7 +330,9 @@ async function sendEmailToHotel({ body, hotelId, roomLabel, threadId, title }) {
   const text = [
     title,
     "",
+    `ホテル: ${hotelLabel}`,
     `部屋: ${roomLabel}`,
+    guestName ? `ゲスト: ${guestName}様` : "",
     `内容: ${body}`,
     threadUrl ? `管理画面: ${threadUrl}` : "",
   ]
@@ -272,7 +342,9 @@ async function sendEmailToHotel({ body, hotelId, roomLabel, threadId, title }) {
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; color: #1c1917;">
       <h2 style="margin: 0 0 16px; font-size: 20px;">${safeTitle}</h2>
+      <p style="margin: 0 0 8px;"><strong>ホテル:</strong> ${safeHotelLabel}</p>
       <p style="margin: 0 0 8px;"><strong>部屋:</strong> ${safeRoomLabel}</p>
+      ${guestName ? `<p style="margin: 0 0 8px;"><strong>ゲスト:</strong> ${safeGuestName} 様</p>` : ""}
       <p style="margin: 0 0 16px;"><strong>内容:</strong><br>${safeBody}</p>
       ${threadUrl ? `<p style="margin: 0;"><a href="${safeThreadUrl}">管理画面で確認する</a></p>` : ""}
     </div>
@@ -366,6 +438,7 @@ export const dispatchGuestMessageNotifications = onDocumentWritten(
     const roomId = readString(afterData.room_id) || readString(afterData.roomId);
     const roomNumber = readString(afterData.room_number) || readString(afterData.roomNumber);
     const roomDisplayName = readString(afterData.room_display_name) || readString(afterData.roomDisplayName);
+    const stayId = readString(afterData.stay_id) || readString(afterData.stayId);
     const category = readString(afterData.category);
     const emergencyLabel = isEmergencyCategory(category) ? resolveEmergencyLabel(category) : "";
     const roomLabel = formatRoomLabel(roomId, roomNumber, roomDisplayName);
@@ -394,6 +467,11 @@ export const dispatchGuestMessageNotifications = onDocumentWritten(
       return;
     }
 
+    const [hotelLabel, guestName] = await Promise.all([
+      resolveHotelLabel(hotelId),
+      resolveGuestName(stayId),
+    ]);
+
     const [pushResult, emailResult] = await Promise.all([
       sendPushToHotel({
         body: sendContext.body,
@@ -403,7 +481,9 @@ export const dispatchGuestMessageNotifications = onDocumentWritten(
       }),
       sendEmailToHotel({
         body: sendContext.body,
+        guestName,
         hotelId,
+        hotelLabel,
         roomLabel: sendContext.roomLabel,
         threadId,
         title: sendContext.title,
