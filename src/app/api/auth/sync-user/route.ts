@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     const role = typeof decodedToken.role === "string" ? decodedToken.role : "";
     const hotelId = typeof decodedToken.hotel_id === "string" ? decodedToken.hotel_id : "";
 
-    if (!(role === "hotel_admin" || role === "hotel_front")) {
+    if (role !== "hotel_admin") {
       return jsonError("forbidden-role", 403);
     }
 

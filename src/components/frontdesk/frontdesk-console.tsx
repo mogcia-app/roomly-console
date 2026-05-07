@@ -363,7 +363,7 @@ export function FrontdeskConsole() {
   const lastRenderedMessageKeyRef = useRef("");
   const [compactMode] = useCompactModePreference();
   const role = claims?.role;
-  const canOperate = role === "hotel_front" || role === "hotel_admin";
+  const canOperate = role === "hotel_admin";
 
   const hotelId = useDeferredValue((claims?.hotel_id ?? defaultHotelId).trim());
   const staffUserId = useDeferredValue(user?.uid ?? "");
@@ -801,7 +801,7 @@ export function FrontdeskConsole() {
     >
       {!canOperate ? (
         <div className="mx-3 mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm sm:mx-6 lg:mx-6">
-          このアカウントには `hotel_front` または `hotel_admin` の custom claim が必要です 現在の role: {role ?? "未設定"}
+          このアカウントには `hotel_admin` の custom claim が必要です 現在の role: {role ?? "未設定"}
         </div>
       ) : null}
 

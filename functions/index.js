@@ -221,7 +221,7 @@ async function getNotificationEmails(hotelId) {
     new Set(
       usersSnapshot.docs
         .map((doc) => doc.data())
-        .filter((data) => data.role === "hotel_admin" || data.role === "hotel_front")
+        .filter((data) => data.role === "hotel_admin")
         .map((data) => normalizeSingleEmail(data.email))
         .filter(Boolean),
     ),

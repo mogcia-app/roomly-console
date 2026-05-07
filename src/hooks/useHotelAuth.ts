@@ -89,7 +89,7 @@ export function useHotelAuth() {
         const role = typeof token.claims.role === "string" ? token.claims.role : undefined;
         const hotelId = typeof token.claims.hotel_id === "string" ? token.claims.hotel_id : undefined;
 
-        if (role && hotelId && (role === "hotel_admin" || role === "hotel_front")) {
+        if (role === "hotel_admin" && hotelId) {
           const syncUserProfile = async () => {
             try {
               const response = await fetch("/api/auth/sync-user", {

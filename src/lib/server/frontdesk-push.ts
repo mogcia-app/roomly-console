@@ -266,7 +266,7 @@ async function listHotelNotificationEmails(hotelId: string) {
     new Set(
       snapshot.docs
         .map((doc) => doc.data())
-        .filter((data) => data.role === "hotel_admin" || data.role === "hotel_front")
+        .filter((data) => data.role === "hotel_admin")
         .map((data) => readString(data.email).trim().toLowerCase())
         .filter(Boolean),
     ),

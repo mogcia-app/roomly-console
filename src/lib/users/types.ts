@@ -1,4 +1,4 @@
-export type HotelUserRole = "hotel_admin" | "hotel_front";
+export type HotelUserRole = "hotel_admin";
 
 export type HotelUserRecord = {
   id: string;
@@ -12,15 +12,4 @@ export type HotelUserRecord = {
   disabled_at?: string;
   disabled_by?: string;
   last_sign_in_at?: string | null;
-};
-
-export type CreateStaffPayload = {
-  displayName: string;
-  email: string;
-  password: string;
-  role: Extract<HotelUserRole, "hotel_front">;
-};
-
-export type UpdateStaffStatusPayload = {
-  isActive: boolean;
 };

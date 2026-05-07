@@ -43,7 +43,7 @@ export async function verifyHotelAdminRequest(): Promise<VerifiedHotelAdmin> {
 export async function verifyHotelStaffRequest(): Promise<VerifiedHotelAdmin> {
   const verified = await verifyHotelRequest();
 
-  if (!(verified.role === "hotel_admin" || verified.role === "hotel_front")) {
+  if (verified.role !== "hotel_admin") {
     throw new Error("forbidden-role");
   }
 
@@ -53,7 +53,7 @@ export async function verifyHotelStaffRequest(): Promise<VerifiedHotelAdmin> {
 export async function verifyHotelStaffIdentity(): Promise<VerifiedHotelAdmin> {
   const verified = await verifyHotelRequest({ requireHotelId: false });
 
-  if (!(verified.role === "hotel_admin" || verified.role === "hotel_front")) {
+  if (verified.role !== "hotel_admin") {
     throw new Error("forbidden-role");
   }
 
